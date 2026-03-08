@@ -16,13 +16,15 @@ import {
   EXAM_TYPES,
   getSubjectsForExamType,
   getQuestionsForSubject,
+  getQuestionsForExamType,
   shuffleArray,
 } from "@/lib/questions";
+import { getWeakTopics, getAdaptiveQuestions } from "@/lib/algorithm";
 
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { userData, startExam } = useApp();
+  const { userData, startExam, tr, language } = useApp();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const examTypeInfo = EXAM_TYPES.find((e) => e.id === userData.examType);
@@ -31,6 +33,7 @@ export default function DashboardScreen() {
     userData.totalQuestionsSolved > 0
       ? Math.round((userData.totalCorrect / userData.totalQuestionsSolved) * 100)
       : 0;
+  const weakTopics = getWeakTopics(userData, userData.examType, 3);
 
   const handleQuickPractice = (subjectName: string) => {
     const questions = shuffleArray(getQuestionsForSubject(subjectName)).slice(0, 10);
@@ -44,6 +47,33 @@ export default function DashboardScreen() {
     router.push("/exam");
   };
 
+  const handleAdaptivePractice = () => {
+    const questions = getAdaptiveQuestions(userData, userData.examType, 10, language);
+    if (questions.length === 0) return;
+    startExam({
+      subject: tr("dashboard.adaptivePractice"),
+      count: questions.length,
+      timePerQuestion: 60,
+      questions,
+    });
+    router.push("/exam");
+  };
+
+  const handleWeakTopicPractice = (subject: string, topic: string) => {
+    const questions = shuffleArray(getQuestionsForSubject(subject, topic)).slice(0, 10);
+    if (questions.length === 0) return;
+    startExam({
+      subject,
+      topic,
+      count: questions.length,
+      timePerQuestion: 60,
+      questions,
+    });
+    router.push("/exam");
+  };
+
+  const examName = language === "bn" ? examTypeInfo?.nameBn : examTypeInfo?.name;
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -54,10 +84,10 @@ export default function DashboardScreen() {
       <View style={styles.headerRow}>
         <View>
           <Text style={[styles.greeting, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Welcome back
+            {tr("dashboard.welcomeBack")}
           </Text>
           <Text style={[styles.examBadge, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-            {examTypeInfo?.name} Prep
+            {examName} {tr("dashboard.prep")}
           </Text>
         </View>
         <View style={[styles.streakBadge, { backgroundColor: colors.streak + "20" }]}>
@@ -75,7 +105,7 @@ export default function DashboardScreen() {
             {userData.totalQuestionsSolved}
           </Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Solved
+            {tr("dashboard.solved")}
           </Text>
         </View>
         <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
@@ -84,7 +114,7 @@ export default function DashboardScreen() {
             {accuracy}%
           </Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Accuracy
+            {tr("dashboard.accuracy")}
           </Text>
         </View>
         <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
@@ -93,19 +123,61 @@ export default function DashboardScreen() {
             {userData.xp}
           </Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            XP
+            {tr("dashboard.xp")}
           </Text>
         </View>
       </View>
 
+      <Pressable
+        style={[styles.adaptiveBtn, { backgroundColor: colors.primary }]}
+        onPress={handleAdaptivePractice}
+      >
+        <Ionicons name="flash" size={20} color="#FFFFFF" />
+        <View style={styles.adaptiveBtnInfo}>
+          <Text style={[styles.adaptiveBtnTitle, { fontFamily: "Inter_600SemiBold" }]}>
+            {tr("dashboard.adaptivePractice")}
+          </Text>
+          <Text style={[styles.adaptiveBtnDesc, { fontFamily: "Inter_400Regular" }]}>
+            {tr("practice.adaptiveDesc")}
+          </Text>
+        </View>
+        <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+      </Pressable>
+
+      {weakTopics.length > 0 && (
+        <>
+          <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+            {tr("dashboard.weakTopics")}
+          </Text>
+          {weakTopics.map((wt) => (
+            <Pressable
+              key={`${wt.subject}::${wt.topic}`}
+              style={[styles.weakCard, { backgroundColor: colors.errorLight, borderColor: colors.error + "30" }]}
+              onPress={() => handleWeakTopicPractice(wt.subject, wt.topic)}
+            >
+              <View style={styles.weakInfo}>
+                <Text style={[styles.weakSubject, { color: colors.error, fontFamily: "Inter_600SemiBold" }]}>
+                  {wt.subject}
+                </Text>
+                <Text style={[styles.weakTopic, { color: colors.text, fontFamily: "Inter_400Regular" }]}>
+                  {wt.topic} - {Math.round(wt.accuracy * 100)}% {tr("dashboard.accuracy").toLowerCase()}
+                </Text>
+              </View>
+              <Ionicons name="arrow-forward-circle" size={24} color={colors.error} />
+            </Pressable>
+          ))}
+        </>
+      )}
+
       <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        Quick Practice
+        {tr("dashboard.quickPractice")}
       </Text>
 
       {subjects.map((subject) => {
         const progress = userData.subjectProgress[subject.name];
         const pct = progress ? Math.round((progress.correct / Math.max(progress.total, 1)) * 100) : 0;
         const total = progress?.total || 0;
+        const subjectName = language === "bn" ? subject.nameBn : subject.name;
         return (
           <Pressable
             key={subject.id}
@@ -117,10 +189,10 @@ export default function DashboardScreen() {
             </View>
             <View style={styles.subjectInfo}>
               <Text style={[styles.subjectName, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-                {subject.name}
+                {subjectName}
               </Text>
               <Text style={[styles.subjectStats, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                {total > 0 ? `${total} solved - ${pct}% accuracy` : "Start practicing"}
+                {total > 0 ? `${total} ${tr("common.solved")} - ${pct}% ${tr("dashboard.accuracy").toLowerCase()}` : tr("dashboard.startPracticing")}
               </Text>
             </View>
             <Ionicons name="play-circle-outline" size={28} color={colors.primary} />
@@ -131,7 +203,7 @@ export default function DashboardScreen() {
       {userData.examHistory.length > 0 && (
         <>
           <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold", marginTop: 24 }]}>
-            Recent Activity
+            {tr("dashboard.recentActivity")}
           </Text>
           {userData.examHistory.slice(0, 5).map((exam) => (
             <View
@@ -153,12 +225,12 @@ export default function DashboardScreen() {
                   {exam.subject}
                 </Text>
                 <Text style={[styles.historyMeta, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                  {exam.correctAnswers}/{exam.totalQuestions} correct
+                  {exam.correctAnswers}/{exam.totalQuestions} {tr("dashboard.correct")}
                   {exam.topic ? ` - ${exam.topic}` : ""}
                 </Text>
               </View>
               <Text style={[styles.historyDate, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-                {new Date(exam.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {new Date(exam.date).toLocaleDateString(language === "bn" ? "bn-BD" : "en-US", { month: "short", day: "numeric" })}
               </Text>
             </View>
           ))}
@@ -169,7 +241,7 @@ export default function DashboardScreen() {
         <View style={[styles.emptyState, { borderColor: colors.border }]}>
           <Ionicons name="book-outline" size={40} color={colors.textTertiary} />
           <Text style={[styles.emptyText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Start practicing to see your progress here
+            {tr("dashboard.startPracticing")}
           </Text>
         </View>
       )}
@@ -201,7 +273,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: 20,
     gap: 10,
-    marginBottom: 28,
+    marginBottom: 20,
   },
   statCard: {
     flex: 1,
@@ -213,6 +285,30 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 20 },
   statLabel: { fontSize: 12 },
+  adaptiveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 20,
+    marginBottom: 24,
+    padding: 16,
+    borderRadius: 14,
+    gap: 12,
+  },
+  adaptiveBtnInfo: { flex: 1 },
+  adaptiveBtnTitle: { fontSize: 15, color: "#FFFFFF", marginBottom: 2 },
+  adaptiveBtnDesc: { fontSize: 12, color: "rgba(255,255,255,0.8)" },
+  weakCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 20,
+    marginBottom: 8,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  weakInfo: { flex: 1 },
+  weakSubject: { fontSize: 13, marginBottom: 2 },
+  weakTopic: { fontSize: 12 },
   sectionTitle: {
     fontSize: 18,
     paddingHorizontal: 20,

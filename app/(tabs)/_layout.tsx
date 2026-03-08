@@ -6,25 +6,27 @@ import { Platform, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import Colors from "@/constants/colors";
+import { useApp } from "@/contexts/AppContext";
 
 function NativeTabLayout() {
+  const { tr } = useApp();
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
+        <Label>{tr("nav.home")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="practice">
         <Icon sf={{ default: "book", selected: "book.fill" }} />
-        <Label>Practice</Label>
+        <Label>{tr("nav.practice")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="ai">
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
-        <Label>AI</Label>
+        <Label>{tr("nav.ai")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>Profile</Label>
+        <Label>{tr("nav.profile")}</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -32,6 +34,7 @@ function NativeTabLayout() {
 
 function ClassicTabLayout() {
   const colorScheme = useColorScheme();
+  const { tr } = useApp();
   const isDark = colorScheme === "dark";
   const isWeb = Platform.OS === "web";
   const isIOS = Platform.OS === "ios";
@@ -70,7 +73,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: tr("nav.home"),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "home" : "home-outline"} size={22} color={color} />
           ),
@@ -79,7 +82,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="practice"
         options={{
-          title: "Practice",
+          title: tr("nav.practice"),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "book" : "book-outline"} size={22} color={color} />
           ),
@@ -88,7 +91,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="ai"
         options={{
-          title: "AI",
+          title: tr("nav.ai"),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "sparkles" : "sparkles-outline"} size={22} color={color} />
           ),
@@ -97,7 +100,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: tr("nav.profile"),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "person" : "person-outline"} size={22} color={color} />
           ),

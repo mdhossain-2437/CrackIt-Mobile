@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { ExamType, ExamConfig, ExamAnswer, ExamResult, UserData, SubjectProgress } from "@/lib/questions";
+import type { ExamType, ExamConfig, ExamAnswer, ExamResult, UserData, SubjectProgress, TopicProgress } from "@/lib/questions";
+import { t, type Language } from "@/lib/i18n";
 
 const STORAGE_KEY = "@crackit_user_data";
 
@@ -11,9 +12,11 @@ const defaultUserData: UserData = {
   totalQuestionsSolved: 0,
   totalCorrect: 0,
   subjectProgress: {},
+  topicProgress: {},
   examHistory: [],
   onboarded: false,
   xp: 0,
+  language: "en",
 };
 
 interface AppContextType {
@@ -21,8 +24,11 @@ interface AppContextType {
   isLoading: boolean;
   currentExam: ExamConfig | null;
   lastResult: ExamResult | null;
-  completeOnboarding: (examType: ExamType) => Promise<void>;
+  language: Language;
+  tr: (key: string) => string;
+  completeOnboarding: (examType: ExamType, language?: Language) => Promise<void>;
   setExamType: (examType: ExamType) => Promise<void>;
+  setLanguage: (language: Language) => Promise<void>;
   startExam: (config: ExamConfig) => void;
   submitExam: (answers: ExamAnswer[]) => Promise<ExamResult>;
   clearCurrentExam: () => void;
@@ -80,14 +86,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { ...data, streak: 1, lastPracticeDate: today };
   };
 
-  const completeOnboarding = useCallback(async (examType: ExamType) => {
-    const updated = { ...defaultUserData, examType, onboarded: true, streak: 1, lastPracticeDate: new Date().toISOString().split("T")[0] };
+  const language = userData.language || "en";
+
+  const tr = useCallback((key: string) => {
+    return t(key, language);
+  }, [language]);
+
+  const completeOnboarding = useCallback(async (examType: ExamType, lang?: Language) => {
+    const updated = {
+      ...defaultUserData,
+      examType,
+      onboarded: true,
+      streak: 1,
+      lastPracticeDate: new Date().toISOString().split("T")[0],
+      language: lang || "en",
+    };
     setUserData(updated);
     await saveData(updated);
   }, []);
 
   const setExamType = useCallback(async (examType: ExamType) => {
     const updated = { ...userData, examType };
+    setUserData(updated);
+    await saveData(updated);
+  }, [userData]);
+
+  const setLanguage = useCallback(async (lang: Language) => {
+    const updated = { ...userData, language: lang };
     setUserData(updated);
     await saveData(updated);
   }, [userData]);
@@ -140,11 +165,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     subjectProgress.total += currentExam.questions.length;
     subjectProgress.correct += correct;
 
+    const updatedTopicProgress = { ...userData.topicProgress };
+    currentExam.questions.forEach((q, idx) => {
+      const key = `${q.subject}::${q.topic}`;
+      const existing: TopicProgress = updatedTopicProgress[key] || {
+        total: 0,
+        correct: 0,
+        lastPracticed: "",
+        consecutiveCorrect: 0,
+      };
+      existing.total += 1;
+      const answer = answers[idx];
+      if (answer && answer.selectedOption === q.correctAnswer) {
+        existing.correct += 1;
+        existing.consecutiveCorrect += 1;
+      } else {
+        existing.consecutiveCorrect = 0;
+      }
+      existing.lastPracticed = new Date().toISOString();
+      updatedTopicProgress[key] = existing;
+    });
+
     let updated = {
       ...userData,
       totalQuestionsSolved: userData.totalQuestionsSolved + currentExam.questions.length,
       totalCorrect: userData.totalCorrect + correct,
       subjectProgress: { ...userData.subjectProgress, [currentExam.subject]: subjectProgress },
+      topicProgress: updatedTopicProgress,
       examHistory: [result, ...userData.examHistory].slice(0, 50),
       xp: userData.xp + xpEarned,
     };
@@ -163,23 +210,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetProgress = useCallback(async () => {
-    const reset = { ...defaultUserData, examType: userData.examType, onboarded: true };
+    const reset = { ...defaultUserData, examType: userData.examType, onboarded: true, language: userData.language };
     setUserData(reset);
     await saveData(reset);
-  }, [userData.examType]);
+  }, [userData.examType, userData.language]);
 
   const value = useMemo(() => ({
     userData,
     isLoading,
     currentExam,
     lastResult,
+    language,
+    tr,
     completeOnboarding,
     setExamType,
+    setLanguage,
     startExam,
     submitExam,
     clearCurrentExam,
     resetProgress,
-  }), [userData, isLoading, currentExam, lastResult, completeOnboarding, setExamType, startExam, submitExam, clearCurrentExam, resetProgress]);
+  }), [userData, isLoading, currentExam, lastResult, language, tr, completeOnboarding, setExamType, setLanguage, startExam, submitExam, clearCurrentExam, resetProgress]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

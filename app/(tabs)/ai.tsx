@@ -16,27 +16,22 @@ import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 import { apiRequest } from "@/lib/query-client";
 import { EXAM_TYPES, type Question, type ExamType, type Difficulty } from "@/lib/questions";
+import type { Language } from "@/lib/i18n";
 import * as Haptics from "expo-haptics";
-
-const DIFFICULTIES: { id: Difficulty | "mixed"; label: string }[] = [
-  { id: "mixed", label: "Mixed" },
-  { id: "easy", label: "Easy" },
-  { id: "medium", label: "Medium" },
-  { id: "hard", label: "Hard" },
-];
 
 const COUNTS = [3, 5, 10];
 
 export default function AIScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { userData, startExam } = useApp();
+  const { userData, startExam, tr, language } = useApp();
 
   const [selectedExamType, setSelectedExamType] = useState<ExamType>(userData.examType);
   const [subject, setSubject] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty | "mixed">("mixed");
   const [count, setCount] = useState(5);
+  const [questionLang, setQuestionLang] = useState<Language>(language);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>([]);
   const [error, setError] = useState("");
@@ -45,9 +40,16 @@ export default function AIScreen() {
   const examTypeInfo = EXAM_TYPES.find((e) => e.id === selectedExamType);
   const subjects = examTypeInfo?.subjects || [];
 
+  const difficulties: { id: Difficulty | "mixed"; label: string }[] = [
+    { id: "mixed", label: tr("difficulty.mixed") },
+    { id: "easy", label: tr("difficulty.easy") },
+    { id: "medium", label: tr("difficulty.medium") },
+    { id: "hard", label: tr("difficulty.hard") },
+  ];
+
   const handleGenerate = async () => {
     if (!subject.trim()) {
-      setError("Please enter a subject");
+      setError(tr("ai.subjectRequired"));
       return;
     }
     setIsGenerating(true);
@@ -61,16 +63,17 @@ export default function AIScreen() {
         topic: topic.trim() || undefined,
         difficulty: difficulty === "mixed" ? undefined : difficulty,
         count,
+        language: questionLang,
       });
       const data = await res.json();
       if (data.questions && data.questions.length > 0) {
         setGeneratedQuestions(data.questions);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        setError("No questions generated. Try a different topic.");
+        setError(tr("ai.noQuestions"));
       }
     } catch (e: any) {
-      setError("Failed to generate questions. Please try again.");
+      setError(tr("ai.error"));
       console.error(e);
     } finally {
       setIsGenerating(false);
@@ -99,17 +102,37 @@ export default function AIScreen() {
     >
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-          AI Generator
+          {tr("ai.title")}
         </Text>
         <Ionicons name="sparkles" size={24} color={colors.primary} />
       </View>
 
       <Text style={[styles.description, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-        Generate fresh MCQ questions on any topic using AI. Perfect for targeted practice.
+        {tr("ai.description")}
       </Text>
 
       <Text style={[styles.label, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        Exam Type
+        {tr("ai.language")}
+      </Text>
+      <View style={styles.chipsRow}>
+        {(["en", "bn"] as Language[]).map((lang) => {
+          const isSelected = questionLang === lang;
+          return (
+            <Pressable
+              key={lang}
+              style={[styles.chip, { backgroundColor: isSelected ? colors.primary : colors.surface, borderColor: isSelected ? colors.primary : colors.border }]}
+              onPress={() => setQuestionLang(lang)}
+            >
+              <Text style={[styles.chipText, { color: isSelected ? "#FFFFFF" : colors.text, fontFamily: "Inter_500Medium" }]}>
+                {lang === "en" ? tr("common.english") : tr("common.bangla")}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={[styles.label, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+        {tr("ai.examType")}
       </Text>
       <ScrollView
         horizontal
@@ -125,7 +148,7 @@ export default function AIScreen() {
               onPress={() => setSelectedExamType(exam.id)}
             >
               <Text style={[styles.chipText, { color: isSelected ? "#FFFFFF" : colors.text, fontFamily: "Inter_500Medium" }]}>
-                {exam.name}
+                {language === "bn" ? exam.nameBn : exam.name}
               </Text>
             </Pressable>
           );
@@ -133,11 +156,11 @@ export default function AIScreen() {
       </ScrollView>
 
       <Text style={[styles.label, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        Subject
+        {tr("ai.subject")}
       </Text>
       <TextInput
         style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border, fontFamily: "Inter_400Regular" }]}
-        placeholder="e.g., Physics, Biology, Bangladesh Affairs"
+        placeholder={tr("ai.subjectPlaceholder")}
         placeholderTextColor={colors.textTertiary}
         value={subject}
         onChangeText={setSubject}
@@ -156,7 +179,7 @@ export default function AIScreen() {
               onPress={() => setSubject(s.name)}
             >
               <Text style={[styles.chipText, { color: subject === s.name ? s.color : colors.text, fontFamily: "Inter_500Medium" }]}>
-                {s.name}
+                {language === "bn" ? s.nameBn : s.name}
               </Text>
             </Pressable>
           ))}
@@ -164,21 +187,21 @@ export default function AIScreen() {
       )}
 
       <Text style={[styles.label, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        Topic (Optional)
+        {tr("ai.topic")}
       </Text>
       <TextInput
         style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border, fontFamily: "Inter_400Regular" }]}
-        placeholder="e.g., Thermodynamics, Genetics"
+        placeholder={tr("ai.topicPlaceholder")}
         placeholderTextColor={colors.textTertiary}
         value={topic}
         onChangeText={setTopic}
       />
 
       <Text style={[styles.label, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        Difficulty
+        {tr("ai.difficulty")}
       </Text>
       <View style={styles.chipsRow}>
-        {DIFFICULTIES.map((d) => {
+        {difficulties.map((d) => {
           const isSelected = difficulty === d.id;
           return (
             <Pressable
@@ -195,7 +218,7 @@ export default function AIScreen() {
       </View>
 
       <Text style={[styles.label, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        Number of Questions
+        {tr("ai.numQuestions")}
       </Text>
       <View style={styles.chipsRow}>
         {COUNTS.map((c) => {
@@ -229,14 +252,14 @@ export default function AIScreen() {
           <View style={styles.loadingRow}>
             <ActivityIndicator color="#FFFFFF" size="small" />
             <Text style={[styles.generateText, { fontFamily: "Inter_600SemiBold" }]}>
-              Generating...
+              {tr("ai.generating")}
             </Text>
           </View>
         ) : (
           <View style={styles.loadingRow}>
             <Ionicons name="sparkles" size={18} color="#FFFFFF" />
             <Text style={[styles.generateText, { fontFamily: "Inter_600SemiBold" }]}>
-              Generate Questions
+              {tr("ai.generate")}
             </Text>
           </View>
         )}
@@ -246,7 +269,7 @@ export default function AIScreen() {
         <View style={styles.resultsSection}>
           <View style={styles.resultHeader}>
             <Text style={[styles.resultTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-              Generated {generatedQuestions.length} Questions
+              {tr("ai.generated")} {generatedQuestions.length} {tr("practice.questions")}
             </Text>
             <Pressable
               style={[styles.practiceBtn, { backgroundColor: colors.success }]}
@@ -254,7 +277,7 @@ export default function AIScreen() {
             >
               <Ionicons name="play" size={16} color="#FFFFFF" />
               <Text style={[styles.practiceBtnText, { fontFamily: "Inter_600SemiBold" }]}>
-                Practice
+                {tr("common.practice")}
               </Text>
             </Pressable>
           </View>
@@ -278,7 +301,7 @@ export default function AIScreen() {
                     },
                   ]}
                 >
-                  {String.fromCharCode(65 + optIdx)}. {opt} {optIdx === q.correctAnswer ? " (Correct)" : ""}
+                  {String.fromCharCode(65 + optIdx)}. {opt} {optIdx === q.correctAnswer ? " ✓" : ""}
                 </Text>
               ))}
             </View>

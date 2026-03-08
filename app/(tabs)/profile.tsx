@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -13,11 +13,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 import { EXAM_TYPES } from "@/lib/questions";
+import type { Language } from "@/lib/i18n";
 
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { userData, setExamType, resetProgress } = useApp();
+  const { userData, setExamType, setLanguage, resetProgress, tr, language } = useApp();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const examTypeInfo = EXAM_TYPES.find((e) => e.id === userData.examType);
@@ -31,18 +32,21 @@ export default function ProfileScreen() {
       ? Math.round(userData.examHistory.reduce((sum, e) => sum + e.score, 0) / totalExams)
       : 0;
 
+  const examName = language === "bn" ? examTypeInfo?.nameBn : examTypeInfo?.name;
+  const examDesc = language === "bn" ? examTypeInfo?.descriptionBn : examTypeInfo?.description;
+
   const handleReset = () => {
     if (Platform.OS === "web") {
-      if (confirm("Are you sure you want to reset all progress? This cannot be undone.")) {
+      if (confirm(tr("profile.resetConfirm"))) {
         resetProgress();
       }
     } else {
       Alert.alert(
-        "Reset Progress",
-        "Are you sure you want to reset all progress? This cannot be undone.",
+        tr("profile.resetAll"),
+        tr("profile.resetConfirm"),
         [
-          { text: "Cancel", style: "cancel" },
-          { text: "Reset", style: "destructive", onPress: () => resetProgress() },
+          { text: tr("exam.cancel"), style: "cancel" },
+          { text: tr("profile.reset"), style: "destructive", onPress: () => resetProgress() },
         ]
       );
     }
@@ -56,7 +60,7 @@ export default function ProfileScreen() {
       showsVerticalScrollIndicator={false}
     >
       <Text style={[styles.title, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-        Profile
+        {tr("profile.title")}
       </Text>
 
       <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
@@ -65,12 +69,12 @@ export default function ProfileScreen() {
         </View>
         <View style={styles.profileInfo}>
           <Text style={[styles.profileName, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-            Student
+            {tr("profile.student")}
           </Text>
           <View style={[styles.examTag, { backgroundColor: colors.primaryLight }]}>
             <Ionicons name={examTypeInfo?.icon as any} size={14} color={colors.primary} />
             <Text style={[styles.examTagText, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
-              {examTypeInfo?.name} Preparation
+              {examName} {tr("profile.preparation")}
             </Text>
           </View>
         </View>
@@ -83,7 +87,7 @@ export default function ProfileScreen() {
             {userData.streak}
           </Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Day Streak
+            {tr("profile.dayStreak")}
           </Text>
         </View>
         <View style={[styles.statItem, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
@@ -92,7 +96,7 @@ export default function ProfileScreen() {
             {userData.totalQuestionsSolved}
           </Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Questions
+            {tr("profile.questions")}
           </Text>
         </View>
         <View style={[styles.statItem, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
@@ -101,7 +105,7 @@ export default function ProfileScreen() {
             {accuracy}%
           </Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Accuracy
+            {tr("dashboard.accuracy")}
           </Text>
         </View>
         <View style={[styles.statItem, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
@@ -110,17 +114,47 @@ export default function ProfileScreen() {
             {avgScore}%
           </Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Avg Score
+            {tr("profile.avgScore")}
           </Text>
         </View>
       </View>
 
       <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        Exam Type
+        {tr("profile.language")}
+      </Text>
+      <View style={styles.langRow}>
+        {(["en", "bn"] as Language[]).map((lang) => {
+          const isSelected = language === lang;
+          return (
+            <Pressable
+              key={lang}
+              style={[
+                styles.langItem,
+                {
+                  backgroundColor: isSelected ? colors.primaryLight : colors.surface,
+                  borderColor: isSelected ? colors.primary : colors.borderLight,
+                },
+              ]}
+              onPress={() => setLanguage(lang)}
+            >
+              <Text style={{ fontSize: 22 }}>{lang === "en" ? "🇬🇧" : "🇧🇩"}</Text>
+              <Text style={[styles.langText, { color: isSelected ? colors.primary : colors.text, fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
+                {lang === "en" ? "English" : "বাংলা"}
+              </Text>
+              {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+        {tr("profile.examType")}
       </Text>
       <View style={styles.examTypeList}>
         {EXAM_TYPES.map((exam) => {
           const isSelected = userData.examType === exam.id;
+          const name = language === "bn" ? exam.nameBn : exam.name;
+          const desc = language === "bn" ? exam.descriptionBn : exam.description;
           return (
             <Pressable
               key={exam.id}
@@ -147,7 +181,7 @@ export default function ProfileScreen() {
                   },
                 ]}
               >
-                {exam.name} - {exam.description}
+                {name} - {desc}
               </Text>
               {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
             </Pressable>
@@ -158,7 +192,7 @@ export default function ProfileScreen() {
       {Object.keys(userData.subjectProgress).length > 0 && (
         <>
           <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold", marginTop: 24 }]}>
-            Subject Progress
+            {tr("profile.subjectProgress")}
           </Text>
           {Object.entries(userData.subjectProgress).map(([name, progress]) => {
             const pct = Math.round((progress.correct / Math.max(progress.total, 1)) * 100);
@@ -181,7 +215,7 @@ export default function ProfileScreen() {
                   />
                 </View>
                 <Text style={[styles.progressMeta, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-                  {progress.correct}/{progress.total} correct
+                  {progress.correct}/{progress.total} {tr("dashboard.correct")}
                 </Text>
               </View>
             );
@@ -195,12 +229,12 @@ export default function ProfileScreen() {
       >
         <Ionicons name="trash-outline" size={18} color={colors.error} />
         <Text style={[styles.resetText, { color: colors.error, fontFamily: "Inter_600SemiBold" }]}>
-          Reset All Progress
+          {tr("profile.resetAll")}
         </Text>
       </Pressable>
 
       <Text style={[styles.version, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-        CrackIt v1.0.0 - BrainSpark
+        {tr("profile.version")}
       </Text>
     </ScrollView>
   );
@@ -264,6 +298,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 12,
   },
+  langRow: {
+    paddingHorizontal: 20,
+    gap: 8,
+    marginBottom: 24,
+  },
+  langItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    marginBottom: 8,
+  },
+  langText: { flex: 1, fontSize: 15 },
   examTypeList: {
     paddingHorizontal: 20,
     gap: 8,

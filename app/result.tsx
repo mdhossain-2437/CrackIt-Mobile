@@ -21,7 +21,7 @@ import Animated, {
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 
-function AnimatedScoreCircle({ score, colors }: { score: number; colors: any }) {
+function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: any; label: string }) {
   const progress = useSharedValue(0);
 
   useEffect(() => {
@@ -44,7 +44,7 @@ function AnimatedScoreCircle({ score, colors }: { score: number; colors: any }) 
         {score}%
       </Text>
       <Text style={[styles.scoreLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-        Score
+        {label}
       </Text>
     </Animated.View>
   );
@@ -57,6 +57,8 @@ function QuestionReviewItem({
   lastResult,
   isExpanded,
   onToggle,
+  explanationLabel,
+  timeLabel,
 }: {
   index: number;
   questionId: string;
@@ -64,6 +66,8 @@ function QuestionReviewItem({
   lastResult: any;
   isExpanded: boolean;
   onToggle: () => void;
+  explanationLabel: string;
+  timeLabel: string;
 }) {
   const question = lastResult.questions[index];
   const answer = lastResult.answers[index];
@@ -142,7 +146,7 @@ function QuestionReviewItem({
             <View style={styles.explanationHeader}>
               <Ionicons name="bulb-outline" size={16} color={colors.primary} />
               <Text style={[styles.explanationTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
-                Explanation
+                {explanationLabel}
               </Text>
             </View>
             <Text style={[styles.explanationText, { color: colors.text, fontFamily: "Inter_400Regular" }]}>
@@ -151,7 +155,7 @@ function QuestionReviewItem({
           </View>
 
           <Text style={[styles.timeTaken, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-            Time: {answer.timeSpent}s
+            {timeLabel}: {answer.timeSpent}s
           </Text>
         </View>
       )}
@@ -162,7 +166,7 @@ function QuestionReviewItem({
 export default function ResultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { lastResult } = useApp();
+  const { lastResult, tr } = useApp();
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -191,7 +195,7 @@ export default function ResultScreen() {
           <Ionicons name="close" size={24} color={colors.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-          Results
+          {tr("result.title")}
         </Text>
         <View style={{ width: 32 }} />
       </View>
@@ -201,7 +205,7 @@ export default function ResultScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.scoreSection}>
-          <AnimatedScoreCircle score={lastResult.score} colors={colors} />
+          <AnimatedScoreCircle score={lastResult.score} colors={colors} label={tr("result.score")} />
 
           <Text style={[styles.subjectTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
             {lastResult.subject}
@@ -216,7 +220,7 @@ export default function ResultScreen() {
               {lastResult.correctAnswers}
             </Text>
             <Text style={[styles.statItemLabel, { color: colors.success, fontFamily: "Inter_400Regular" }]}>
-              Correct
+              {tr("result.correct")}
             </Text>
           </View>
           <View style={[styles.statItem, { backgroundColor: colors.errorLight }]}>
@@ -225,7 +229,7 @@ export default function ResultScreen() {
               {lastResult.wrongAnswers}
             </Text>
             <Text style={[styles.statItemLabel, { color: colors.error, fontFamily: "Inter_400Regular" }]}>
-              Wrong
+              {tr("result.wrong")}
             </Text>
           </View>
           <View style={[styles.statItem, { backgroundColor: colors.warningLight }]}>
@@ -234,7 +238,7 @@ export default function ResultScreen() {
               {lastResult.skipped}
             </Text>
             <Text style={[styles.statItemLabel, { color: colors.warning, fontFamily: "Inter_400Regular" }]}>
-              Skipped
+              {tr("result.skipped")}
             </Text>
           </View>
           <View style={[styles.statItem, { backgroundColor: colors.primaryLight }]}>
@@ -243,14 +247,14 @@ export default function ResultScreen() {
               {avgTimePerQ}s
             </Text>
             <Text style={[styles.statItemLabel, { color: colors.primary, fontFamily: "Inter_400Regular" }]}>
-              Avg Time
+              {tr("result.avgTime")}
             </Text>
           </View>
         </View>
 
         <View style={styles.reviewSection}>
           <Text style={[styles.reviewTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-            Review Answers
+            {tr("result.reviewAnswers")}
           </Text>
 
           {lastResult.questions.map((q, idx) => (
@@ -262,6 +266,8 @@ export default function ResultScreen() {
               lastResult={lastResult}
               isExpanded={expandedIdx === idx}
               onToggle={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
+              explanationLabel={tr("result.explanation")}
+              timeLabel={tr("result.time")}
             />
           ))}
         </View>
@@ -271,7 +277,7 @@ export default function ResultScreen() {
           onPress={() => router.replace("/(tabs)")}
         >
           <Text style={[styles.doneButtonText, { fontFamily: "Inter_600SemiBold" }]}>
-            Back to Home
+            {tr("result.backHome")}
           </Text>
         </Pressable>
       </ScrollView>

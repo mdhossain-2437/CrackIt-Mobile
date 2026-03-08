@@ -21,7 +21,7 @@ import type { ExamAnswer } from "@/lib/questions";
 export default function ExamScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentExam, submitExam, clearCurrentExam } = useApp();
+  const { currentExam, submitExam, clearCurrentExam, tr } = useApp();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -153,13 +153,13 @@ export default function ExamScreen() {
       router.back();
     };
     if (Platform.OS === "web") {
-      if (confirm("Are you sure you want to exit? Your progress will be lost.")) {
+      if (confirm(tr("exam.exitConfirm"))) {
         exitAction();
       }
     } else {
-      Alert.alert("Exit Exam", "Are you sure? Your progress will be lost.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Exit", style: "destructive", onPress: exitAction },
+      Alert.alert(tr("exam.exit"), tr("exam.exitConfirm"), [
+        { text: tr("exam.cancel"), style: "cancel" },
+        { text: tr("common.exit"), style: "destructive", onPress: exitAction },
       ]);
     }
   };
@@ -168,6 +168,8 @@ export default function ExamScreen() {
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
   const isTimeWarning = timeLeft < 60;
+
+  const difficultyLabel = tr(`difficulty.${question.difficulty}`);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -212,7 +214,7 @@ export default function ExamScreen() {
               color: question.difficulty === "easy" ? colors.success : question.difficulty === "medium" ? colors.warning : colors.error,
               fontFamily: "Inter_600SemiBold",
             }]}>
-              {question.difficulty.charAt(0).toUpperCase() + question.difficulty.slice(1)}
+              {difficultyLabel}
             </Text>
           </View>
           <Pressable onPress={handleToggleReview} style={styles.reviewBtn}>
@@ -273,14 +275,14 @@ export default function ExamScreen() {
           disabled={currentIndex === 0}
         >
           <Ionicons name="chevron-back" size={20} color={colors.primary} />
-          <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>Prev</Text>
+          <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>{tr("exam.prev")}</Text>
         </Pressable>
 
         <Pressable
           style={[styles.skipBtn, { borderColor: colors.border }]}
           onPress={handleSkip}
         >
-          <Text style={[styles.skipBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>Skip</Text>
+          <Text style={[styles.skipBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>{tr("exam.skip")}</Text>
         </Pressable>
 
         {currentIndex === totalQuestions - 1 ? (
@@ -288,12 +290,12 @@ export default function ExamScreen() {
             style={[styles.submitBtn, { backgroundColor: colors.success }]}
             onPress={handleConfirmSubmit}
           >
-            <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>Submit</Text>
+            <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>{tr("exam.submit")}</Text>
             <Ionicons name="checkmark" size={18} color="#FFFFFF" />
           </Pressable>
         ) : (
           <Pressable style={styles.navBtn} onPress={handleNext}>
-            <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>Next</Text>
+            <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>{tr("exam.next")}</Text>
             <Ionicons name="chevron-forward" size={20} color={colors.primary} />
           </Pressable>
         )}
@@ -304,7 +306,7 @@ export default function ExamScreen() {
           <View style={[styles.paletteContainer, { backgroundColor: colors.background }]}>
             <View style={[styles.paletteHeader, { borderBottomColor: colors.border }]}>
               <Text style={[styles.paletteTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-                Question Palette
+                {tr("exam.palette")}
               </Text>
               <Pressable onPress={() => setShowPalette(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
@@ -314,15 +316,15 @@ export default function ExamScreen() {
             <View style={styles.paletteLegend}>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: colors.success }]} />
-                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>Answered ({answeredCount})</Text>
+                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.answered")} ({answeredCount})</Text>
               </View>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: colors.warning }]} />
-                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>Review ({markedForReview.size})</Text>
+                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.review")} ({markedForReview.size})</Text>
               </View>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: colors.border }]} />
-                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>Unanswered</Text>
+                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.unanswered")}</Text>
               </View>
             </View>
 
@@ -362,7 +364,7 @@ export default function ExamScreen() {
               onPress={() => { setShowPalette(false); handleConfirmSubmit(); }}
             >
               <Text style={[styles.paletteSubmitText, { fontFamily: "Inter_600SemiBold" }]}>
-                Submit Exam ({answeredCount}/{totalQuestions} answered)
+                {tr("exam.submit")} ({answeredCount}/{totalQuestions} {tr("exam.answered").toLowerCase()})
               </Text>
             </Pressable>
           </View>
@@ -374,23 +376,23 @@ export default function ExamScreen() {
           <View style={[styles.confirmCard, { backgroundColor: colors.background }]}>
             <Ionicons name="alert-circle-outline" size={48} color={colors.warning} />
             <Text style={[styles.confirmTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-              Unanswered Questions
+              {tr("exam.unansweredTitle")}
             </Text>
             <Text style={[styles.confirmMsg, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              You have {totalQuestions - answeredCount} unanswered question{totalQuestions - answeredCount !== 1 ? "s" : ""}. Submit anyway?
+              {totalQuestions - answeredCount} {tr("exam.unansweredMsg")}. {tr("exam.submitAnyway")}
             </Text>
             <View style={styles.confirmBtns}>
               <Pressable
                 style={[styles.confirmBtn, { borderColor: colors.border }]}
                 onPress={() => setShowConfirm(false)}
               >
-                <Text style={[styles.confirmBtnText, { color: colors.text, fontFamily: "Inter_500Medium" }]}>Go Back</Text>
+                <Text style={[styles.confirmBtnText, { color: colors.text, fontFamily: "Inter_500Medium" }]}>{tr("exam.goBack")}</Text>
               </Pressable>
               <Pressable
                 style={[styles.confirmBtn, { backgroundColor: colors.success, borderColor: colors.success }]}
                 onPress={() => { setShowConfirm(false); handleSubmit(); }}
               >
-                <Text style={[styles.confirmBtnText, { color: "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}>Submit</Text>
+                <Text style={[styles.confirmBtnText, { color: "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}>{tr("exam.submit")}</Text>
               </Pressable>
             </View>
           </View>
