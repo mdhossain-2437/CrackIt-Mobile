@@ -14,17 +14,63 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import * as Haptics from "expo-haptics";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from "react-native-reanimated";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
-import type { ExamAnswer } from "@/lib/questions";
+import type { ExamAnswer, Question, Difficulty } from "@/lib/questions";
+import {
+  createAdaptiveState,
+  updateAdaptiveState,
+  getNextAdaptiveQuestion,
+  type AdaptiveState,
+} from "@/lib/algorithm";
+
+function AdaptiveDifficultyIndicator({ difficulty, colors, tr }: { difficulty: Difficulty; colors: any; tr: (key: string) => string }) {
+  const animatedScale = useSharedValue(1);
+  const animatedBg = useSharedValue(0);
+  const prevDiffRef = useRef(difficulty);
+
+  useEffect(() => {
+    if (prevDiffRef.current !== difficulty) {
+      animatedScale.value = withSpring(1.15, { damping: 8, stiffness: 200 }, () => {
+        animatedScale.value = withSpring(1, { damping: 12 });
+      });
+      prevDiffRef.current = difficulty;
+    }
+  }, [difficulty]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: animatedScale.value }],
+  }));
+
+  const diffColor = difficulty === "easy" ? colors.success : difficulty === "medium" ? colors.warning : colors.error;
+  const diffBg = difficulty === "easy" ? colors.successLight : difficulty === "medium" ? colors.warningLight : colors.errorLight;
+  const diffIcon = difficulty === "easy" ? "speedometer-outline" : difficulty === "medium" ? "speedometer-outline" : "speedometer";
+
+  return (
+    <Animated.View style={[styles.adaptiveIndicator, { backgroundColor: diffBg, borderColor: diffColor + "40" }, animStyle]}>
+      <Ionicons name={diffIcon as any} size={14} color={diffColor} />
+      <Text style={[styles.adaptiveIndicatorText, { color: diffColor, fontFamily: "Inter_600SemiBold" }]}>
+        {tr(`difficulty.${difficulty}`)}
+      </Text>
+      <View style={[styles.adaptiveDot, { backgroundColor: diffColor }]} />
+    </Animated.View>
+  );
+}
 
 export default function ExamScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { currentExam, submitExam, clearCurrentExam, tr } = useApp();
+  const { currentExam, submitExam, clearCurrentExam, tr, userData, language } = useApp();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const isAdaptive = currentExam?.adaptive === true;
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
@@ -37,12 +83,26 @@ export default function ExamScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSubmitRef = useRef<() => void>(() => {});
 
+  const [adaptiveState, setAdaptiveState] = useState<AdaptiveState>(() => createAdaptiveState());
+  const [adaptiveQuestions, setAdaptiveQuestions] = useState<Question[]>([]);
+  const [adaptiveAnswerLocked, setAdaptiveAnswerLocked] = useState(false);
+  const adaptiveMaxQuestions = currentExam?.count || 10;
+
   useEffect(() => {
     if (!currentExam) {
       router.replace("/(tabs)");
       return;
     }
-    const totalTime = currentExam.questions.length * currentExam.timePerQuestion;
+
+    if (isAdaptive && currentExam.questions.length > 0) {
+      const firstQ = currentExam.questions[0];
+      setAdaptiveQuestions([firstQ]);
+      const initialState = createAdaptiveState();
+      initialState.usedQuestionIds.add(firstQ.id);
+      setAdaptiveState(initialState);
+    }
+
+    const totalTime = (isAdaptive ? adaptiveMaxQuestions : currentExam.questions.length) * currentExam.timePerQuestion;
     setTimeLeft(totalTime);
     questionStartRef.current = Date.now();
 
@@ -64,8 +124,11 @@ export default function ExamScreen() {
 
   if (!currentExam) return null;
 
-  const question = currentExam.questions[currentIndex];
-  const totalQuestions = currentExam.questions.length;
+  const questionsToShow = isAdaptive ? adaptiveQuestions : currentExam.questions;
+  const totalQuestions = isAdaptive ? adaptiveMaxQuestions : currentExam.questions.length;
+  const question = questionsToShow[currentIndex];
+  if (!question) return null;
+
   const selectedOption = answers[question.id] ?? null;
   const isMarked = markedForReview.has(question.id);
 
@@ -79,18 +142,44 @@ export default function ExamScreen() {
   };
 
   const handleSelectOption = (index: number) => {
+    if (isAdaptive && adaptiveAnswerLocked) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAnswers((prev) => ({ ...prev, [question.id]: index }));
+
+    if (isAdaptive) {
+      setAdaptiveAnswerLocked(true);
+      const isCorrect = index === question.correctAnswer;
+      const newState = updateAdaptiveState(adaptiveState, isCorrect);
+      newState.usedQuestionIds.add(question.id);
+      setAdaptiveState(newState);
+
+      if (currentIndex < adaptiveMaxQuestions - 1) {
+        const nextQ = getNextAdaptiveQuestion(
+          userData.examType,
+          newState.currentDifficulty,
+          newState.usedQuestionIds,
+          language,
+        );
+        if (nextQ) {
+          newState.usedQuestionIds.add(nextQ.id);
+          setAdaptiveQuestions((prev) => [...prev, nextQ]);
+        }
+      }
+    }
   };
 
   const handleNext = () => {
     recordQuestionTime();
-    if (currentIndex < totalQuestions - 1) {
+    if (isAdaptive) {
+      setAdaptiveAnswerLocked(false);
+    }
+    if (currentIndex < (isAdaptive ? adaptiveQuestions.length - 1 : totalQuestions - 1)) {
       setCurrentIndex(currentIndex + 1);
     }
   };
 
   const handlePrevious = () => {
+    if (isAdaptive) return;
     recordQuestionTime();
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
@@ -99,12 +188,40 @@ export default function ExamScreen() {
 
   const handleSkip = () => {
     recordQuestionTime();
-    if (currentIndex < totalQuestions - 1) {
-      setCurrentIndex(currentIndex + 1);
+    if (isAdaptive) {
+      if (!adaptiveAnswerLocked) {
+        const newState = updateAdaptiveState(adaptiveState, false);
+        newState.usedQuestionIds.add(question.id);
+        setAdaptiveState(newState);
+
+        if (currentIndex < adaptiveMaxQuestions - 1) {
+          const nextQ = getNextAdaptiveQuestion(
+            userData.examType,
+            newState.currentDifficulty,
+            newState.usedQuestionIds,
+            language,
+          );
+          if (nextQ) {
+            newState.usedQuestionIds.add(nextQ.id);
+            setAdaptiveQuestions((prev) => [...prev, nextQ]);
+          }
+        }
+      }
+      setAdaptiveAnswerLocked(false);
+      if (currentIndex < adaptiveQuestions.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else if (adaptiveQuestions.length < adaptiveMaxQuestions) {
+        setCurrentIndex(currentIndex + 1);
+      }
+    } else {
+      if (currentIndex < totalQuestions - 1) {
+        setCurrentIndex(currentIndex + 1);
+      }
     }
   };
 
   const handleToggleReview = () => {
+    if (isAdaptive) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMarkedForReview((prev) => {
       const next = new Set(prev);
@@ -115,6 +232,7 @@ export default function ExamScreen() {
   };
 
   const handleGoToQuestion = (idx: number) => {
+    if (isAdaptive) return;
     recordQuestionTime();
     setCurrentIndex(idx);
     setShowPalette(false);
@@ -124,21 +242,28 @@ export default function ExamScreen() {
     if (timerRef.current) clearInterval(timerRef.current);
     recordQuestionTime();
 
-    const examAnswers: ExamAnswer[] = currentExam.questions.map((q) => ({
+    const qList = isAdaptive ? adaptiveQuestions : currentExam.questions;
+
+    const examAnswers: ExamAnswer[] = qList.map((q) => ({
       questionId: q.id,
       selectedOption: answers[q.id] ?? null,
       timeSpent: questionTimes[q.id] || 0,
       markedForReview: markedForReview.has(q.id),
     }));
 
-    await submitExam(examAnswers);
+    if (isAdaptive) {
+      await submitExam(examAnswers, adaptiveState.difficultyProgression, adaptiveQuestions);
+    } else {
+      await submitExam(examAnswers);
+    }
     router.replace("/result");
   };
 
   autoSubmitRef.current = handleSubmit;
 
   const handleConfirmSubmit = () => {
-    const unanswered = currentExam.questions.filter((q) => answers[q.id] === undefined || answers[q.id] === null).length;
+    const qList = isAdaptive ? adaptiveQuestions : currentExam.questions;
+    const unanswered = qList.filter((q) => answers[q.id] === undefined || answers[q.id] === null).length;
     if (unanswered > 0) {
       setShowConfirm(true);
     } else {
@@ -171,6 +296,14 @@ export default function ExamScreen() {
 
   const difficultyLabel = tr(`difficulty.${question.difficulty}`);
 
+  const isLastQuestion = isAdaptive
+    ? (currentIndex >= adaptiveMaxQuestions - 1 || currentIndex >= adaptiveQuestions.length - 1)
+    : currentIndex === totalQuestions - 1;
+
+  const canGoNext = isAdaptive
+    ? (adaptiveAnswerLocked && currentIndex < adaptiveQuestions.length - 1)
+    : currentIndex < totalQuestions - 1;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar style="auto" />
@@ -184,17 +317,30 @@ export default function ExamScreen() {
           <Text style={[styles.headerTitle, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
             {currentIndex + 1} / {totalQuestions}
           </Text>
+          {isAdaptive ? (
+            <AdaptiveDifficultyIndicator difficulty={adaptiveState.currentDifficulty} colors={colors} tr={tr} />
+          ) : (
+            <View style={[styles.timerBadge, { backgroundColor: isTimeWarning ? colors.errorLight : colors.primaryLight }]}>
+              <Ionicons name="time-outline" size={14} color={isTimeWarning ? colors.error : colors.primary} />
+              <Text style={[styles.timerText, { color: isTimeWarning ? colors.error : colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+                {minutes}:{seconds.toString().padStart(2, "0")}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {isAdaptive ? (
           <View style={[styles.timerBadge, { backgroundColor: isTimeWarning ? colors.errorLight : colors.primaryLight }]}>
             <Ionicons name="time-outline" size={14} color={isTimeWarning ? colors.error : colors.primary} />
             <Text style={[styles.timerText, { color: isTimeWarning ? colors.error : colors.primary, fontFamily: "Inter_600SemiBold" }]}>
               {minutes}:{seconds.toString().padStart(2, "0")}
             </Text>
           </View>
-        </View>
-
-        <Pressable onPress={() => setShowPalette(true)} style={styles.headerBtn}>
-          <Ionicons name="grid-outline" size={22} color={colors.primary} />
-        </Pressable>
+        ) : (
+          <Pressable onPress={() => setShowPalette(true)} style={styles.headerBtn}>
+            <Ionicons name="grid-outline" size={22} color={colors.primary} />
+          </Pressable>
+        )}
       </View>
 
       <View style={[styles.progressBar, { backgroundColor: colors.borderLight }]}>
@@ -217,13 +363,15 @@ export default function ExamScreen() {
               {difficultyLabel}
             </Text>
           </View>
-          <Pressable onPress={handleToggleReview} style={styles.reviewBtn}>
-            <Ionicons
-              name={isMarked ? "bookmark" : "bookmark-outline"}
-              size={20}
-              color={isMarked ? colors.warning : colors.textSecondary}
-            />
-          </Pressable>
+          {!isAdaptive && (
+            <Pressable onPress={handleToggleReview} style={styles.reviewBtn}>
+              <Ionicons
+                name={isMarked ? "bookmark" : "bookmark-outline"}
+                size={20}
+                color={isMarked ? colors.warning : colors.textSecondary}
+              />
+            </Pressable>
+          )}
         </View>
 
         <Text style={[styles.questionText, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
@@ -233,143 +381,227 @@ export default function ExamScreen() {
         <View style={styles.options}>
           {question.options.map((option, idx) => {
             const isSelected = selectedOption === idx;
+            const showResult = isAdaptive && adaptiveAnswerLocked;
+            const isCorrectOption = idx === question.correctAnswer;
+            let optBg = isSelected ? colors.primaryLight : colors.surface;
+            let optBorder = isSelected ? colors.primary : colors.border;
+            let optBorderWidth = isSelected ? 2 : 1;
+
+            if (showResult) {
+              if (isCorrectOption) {
+                optBg = colors.successLight;
+                optBorder = colors.success;
+                optBorderWidth = 2;
+              } else if (isSelected && !isCorrectOption) {
+                optBg = colors.errorLight;
+                optBorder = colors.error;
+                optBorderWidth = 2;
+              }
+            }
+
             return (
               <Pressable
                 key={idx}
                 style={[
                   styles.optionButton,
                   {
-                    backgroundColor: isSelected ? colors.primaryLight : colors.surface,
-                    borderColor: isSelected ? colors.primary : colors.border,
-                    borderWidth: isSelected ? 2 : 1,
+                    backgroundColor: optBg,
+                    borderColor: optBorder,
+                    borderWidth: optBorderWidth,
                   },
                 ]}
                 onPress={() => handleSelectOption(idx)}
+                disabled={isAdaptive && adaptiveAnswerLocked}
               >
                 <View style={[styles.optionLabel, {
-                  backgroundColor: isSelected ? colors.primary : colors.borderLight,
+                  backgroundColor: showResult
+                    ? (isCorrectOption ? colors.success : isSelected ? colors.error : colors.borderLight)
+                    : (isSelected ? colors.primary : colors.borderLight),
                 }]}>
                   <Text style={[styles.optionLabelText, {
-                    color: isSelected ? "#FFFFFF" : colors.textSecondary,
+                    color: (showResult && (isCorrectOption || isSelected)) || isSelected ? "#FFFFFF" : colors.textSecondary,
                     fontFamily: "Inter_600SemiBold",
                   }]}>
                     {String.fromCharCode(65 + idx)}
                   </Text>
                 </View>
                 <Text style={[styles.optionText, {
-                  color: isSelected ? colors.primary : colors.text,
-                  fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_400Regular",
+                  color: showResult
+                    ? (isCorrectOption ? colors.success : isSelected ? colors.error : colors.text)
+                    : (isSelected ? colors.primary : colors.text),
+                  fontFamily: (isSelected || (showResult && isCorrectOption)) ? "Inter_600SemiBold" : "Inter_400Regular",
                 }]}>
                   {option}
                 </Text>
+                {showResult && isCorrectOption && (
+                  <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                )}
+                {showResult && isSelected && !isCorrectOption && (
+                  <Ionicons name="close-circle" size={20} color={colors.error} />
+                )}
               </Pressable>
             );
           })}
         </View>
+
+        {isAdaptive && adaptiveAnswerLocked && (
+          <View style={[styles.adaptiveExplanation, { backgroundColor: colors.primaryLight }]}>
+            <View style={styles.explanationHeader}>
+              <Ionicons name="bulb-outline" size={16} color={colors.primary} />
+              <Text style={[styles.explanationTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+                {tr("result.explanation")}
+              </Text>
+            </View>
+            <Text style={[styles.explanationText, { color: colors.text, fontFamily: "Inter_400Regular" }]}>
+              {question.explanation}
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: bottomInset + 12, backgroundColor: colors.background, borderTopColor: colors.border }]}>
-        <Pressable
-          style={[styles.navBtn, { opacity: currentIndex === 0 ? 0.3 : 1 }]}
-          onPress={handlePrevious}
-          disabled={currentIndex === 0}
-        >
-          <Ionicons name="chevron-back" size={20} color={colors.primary} />
-          <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>{tr("exam.prev")}</Text>
-        </Pressable>
-
-        <Pressable
-          style={[styles.skipBtn, { borderColor: colors.border }]}
-          onPress={handleSkip}
-        >
-          <Text style={[styles.skipBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>{tr("exam.skip")}</Text>
-        </Pressable>
-
-        {currentIndex === totalQuestions - 1 ? (
-          <Pressable
-            style={[styles.submitBtn, { backgroundColor: colors.success }]}
-            onPress={handleConfirmSubmit}
-          >
-            <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>{tr("exam.submit")}</Text>
-            <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-          </Pressable>
-        ) : (
-          <Pressable style={styles.navBtn} onPress={handleNext}>
-            <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>{tr("exam.next")}</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
-          </Pressable>
-        )}
-      </View>
-
-      <Modal visible={showPalette} animationType="slide" transparent>
-        <View style={styles.paletteOverlay}>
-          <View style={[styles.paletteContainer, { backgroundColor: colors.background }]}>
-            <View style={[styles.paletteHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.paletteTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-                {tr("exam.palette")}
+        {isAdaptive ? (
+          <>
+            <View style={styles.navBtn}>
+              <Text style={[styles.navBtnText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                {answeredCount}/{totalQuestions}
               </Text>
-              <Pressable onPress={() => setShowPalette(false)}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </Pressable>
-            </View>
-
-            <View style={styles.paletteLegend}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: colors.success }]} />
-                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.answered")} ({answeredCount})</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: colors.warning }]} />
-                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.review")} ({markedForReview.size})</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: colors.border }]} />
-                <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.unanswered")}</Text>
-              </View>
-            </View>
-
-            <View style={styles.paletteGrid}>
-              {currentExam.questions.map((q, idx) => {
-                const isAnswered = answers[q.id] !== undefined && answers[q.id] !== null;
-                const isReview = markedForReview.has(q.id);
-                const isCurrent = idx === currentIndex;
-                let bgColor = colors.surface;
-                if (isAnswered) bgColor = colors.successLight;
-                if (isReview) bgColor = colors.warningLight;
-                if (isCurrent) bgColor = colors.primaryLight;
-
-                return (
-                  <Pressable
-                    key={q.id}
-                    style={[styles.paletteItem, {
-                      backgroundColor: bgColor,
-                      borderColor: isCurrent ? colors.primary : colors.border,
-                      borderWidth: isCurrent ? 2 : 1,
-                    }]}
-                    onPress={() => handleGoToQuestion(idx)}
-                  >
-                    <Text style={[styles.paletteItemText, {
-                      color: isCurrent ? colors.primary : colors.text,
-                      fontFamily: "Inter_600SemiBold",
-                    }]}>
-                      {idx + 1}
-                    </Text>
-                  </Pressable>
-                );
-              })}
             </View>
 
             <Pressable
-              style={[styles.paletteSubmit, { backgroundColor: colors.success }]}
-              onPress={() => { setShowPalette(false); handleConfirmSubmit(); }}
+              style={[styles.skipBtn, { borderColor: colors.border, opacity: adaptiveAnswerLocked ? 0.3 : 1 }]}
+              onPress={handleSkip}
+              disabled={adaptiveAnswerLocked}
             >
-              <Text style={[styles.paletteSubmitText, { fontFamily: "Inter_600SemiBold" }]}>
-                {tr("exam.submit")} ({answeredCount}/{totalQuestions} {tr("exam.answered").toLowerCase()})
-              </Text>
+              <Text style={[styles.skipBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>{tr("exam.skip")}</Text>
             </Pressable>
+
+            {isLastQuestion && adaptiveAnswerLocked ? (
+              <Pressable
+                style={[styles.submitBtn, { backgroundColor: colors.success }]}
+                onPress={handleConfirmSubmit}
+              >
+                <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>{tr("exam.submit")}</Text>
+                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.navBtn, { opacity: canGoNext ? 1 : 0.3 }]}
+                onPress={handleNext}
+                disabled={!canGoNext}
+              >
+                <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>{tr("exam.next")}</Text>
+                <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+              </Pressable>
+            )}
+          </>
+        ) : (
+          <>
+            <Pressable
+              style={[styles.navBtn, { opacity: currentIndex === 0 ? 0.3 : 1 }]}
+              onPress={handlePrevious}
+              disabled={currentIndex === 0}
+            >
+              <Ionicons name="chevron-back" size={20} color={colors.primary} />
+              <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>{tr("exam.prev")}</Text>
+            </Pressable>
+
+            <Pressable
+              style={[styles.skipBtn, { borderColor: colors.border }]}
+              onPress={handleSkip}
+            >
+              <Text style={[styles.skipBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>{tr("exam.skip")}</Text>
+            </Pressable>
+
+            {currentIndex === totalQuestions - 1 ? (
+              <Pressable
+                style={[styles.submitBtn, { backgroundColor: colors.success }]}
+                onPress={handleConfirmSubmit}
+              >
+                <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>{tr("exam.submit")}</Text>
+                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+              </Pressable>
+            ) : (
+              <Pressable style={styles.navBtn} onPress={handleNext}>
+                <Text style={[styles.navBtnText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>{tr("exam.next")}</Text>
+                <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+              </Pressable>
+            )}
+          </>
+        )}
+      </View>
+
+      {!isAdaptive && (
+        <Modal visible={showPalette} animationType="slide" transparent>
+          <View style={styles.paletteOverlay}>
+            <View style={[styles.paletteContainer, { backgroundColor: colors.background }]}>
+              <View style={[styles.paletteHeader, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.paletteTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                  {tr("exam.palette")}
+                </Text>
+                <Pressable onPress={() => setShowPalette(false)}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </Pressable>
+              </View>
+
+              <View style={styles.paletteLegend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: colors.success }]} />
+                  <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.answered")} ({answeredCount})</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: colors.warning }]} />
+                  <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.review")} ({markedForReview.size})</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: colors.border }]} />
+                  <Text style={[styles.legendText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{tr("exam.unanswered")}</Text>
+                </View>
+              </View>
+
+              <View style={styles.paletteGrid}>
+                {currentExam.questions.map((q, idx) => {
+                  const isAnswered = answers[q.id] !== undefined && answers[q.id] !== null;
+                  const isReview = markedForReview.has(q.id);
+                  const isCurrent = idx === currentIndex;
+                  let bgColor = colors.surface;
+                  if (isAnswered) bgColor = colors.successLight;
+                  if (isReview) bgColor = colors.warningLight;
+                  if (isCurrent) bgColor = colors.primaryLight;
+
+                  return (
+                    <Pressable
+                      key={q.id}
+                      style={[styles.paletteItem, {
+                        backgroundColor: bgColor,
+                        borderColor: isCurrent ? colors.primary : colors.border,
+                        borderWidth: isCurrent ? 2 : 1,
+                      }]}
+                      onPress={() => handleGoToQuestion(idx)}
+                    >
+                      <Text style={[styles.paletteItemText, {
+                        color: isCurrent ? colors.primary : colors.text,
+                        fontFamily: "Inter_600SemiBold",
+                      }]}>
+                        {idx + 1}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Pressable
+                style={[styles.paletteSubmit, { backgroundColor: colors.success }]}
+                onPress={() => { setShowPalette(false); handleConfirmSubmit(); }}
+              >
+                <Text style={[styles.paletteSubmitText, { fontFamily: "Inter_600SemiBold" }]}>
+                  {tr("exam.submit")} ({answeredCount}/{totalQuestions} {tr("exam.answered").toLowerCase()})
+                </Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      )}
 
       <Modal visible={showConfirm} animationType="fade" transparent>
         <View style={styles.confirmOverlay}>
@@ -495,6 +727,34 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   submitBtnText: { fontSize: 15, color: "#FFFFFF" },
+  adaptiveIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  adaptiveIndicatorText: { fontSize: 12 },
+  adaptiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  adaptiveExplanation: {
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 16,
+  },
+  explanationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  explanationTitle: { fontSize: 13 },
+  explanationText: { fontSize: 13, lineHeight: 20 },
   paletteOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

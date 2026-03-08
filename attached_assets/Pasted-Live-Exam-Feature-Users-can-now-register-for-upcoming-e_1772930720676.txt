@@ -1,0 +1,15 @@
+Live Exam Feature — Users can now register for upcoming exams, see a countdown to start time, join live exams with a dedicated exam interface showing live indicators and participant count, and see their rank in a live-specific results view.
+
+Advanced Analytics Dashboard — A new analytics page accessible from the dashboard showing subject-wise accuracy bars, score history trend chart, weakness radar identifying weakest topics with urgency badges, and time-per-question analysis.
+
+Adaptive Difficulty — A new "Adaptive" practice mode that dynamically adjusts question difficulty based on performance — harder questions after correct streaks, easier ones after mistakes. Includes a visual difficulty indicator during the exam.
+
+UI Polish & Animations — Smooth page transitions, staggered entrance animations, animated progress bars, score reveal animation on results, card hover effects, button press feedback, and active state animations on the bottom navigation.
+
+Expanded Question Bank — Grew from ~357 to 502+ questions with better coverage across all 8 subjects (Bangla, GK, Physics, Biology, Chemistry, English, Math, ICT).
+
+Anti-Cheat System — Fullscreen lock request, tab-switch detection with 3-warning limit before auto-submit, visual warning overlay, disabled right-click and keyboard shortcuts, and violation count displayed in results.
+
+PWA Improvements — Enhanced manifest with shortcuts, improved service worker caching (cache-first for static assets, network-first for pages), offline indicator banner, install prompt, and proper SW update flow.
+
+real time featuers and many mnay tracking and many many  personalization and ai chatbot and billions of question and  question creation ability and  self learing system , bangladesh all types of exam primery school to job/ bcs scholership viva interview all types of questions and  featuers and systems , firebase auth and better database it is open source and  maintainable and many many things @attached_assets/Pasted-Project-Blueprint-Ultimate-BD-Exam-Prep-AI-MCQ-Platform_1772927778094.txt  in student registration   know students education lavel and give them this levels questions  and recomandations and  make ui ux more premium and more futuristik and best ui ux exprerience with awward winning designs immersive design 

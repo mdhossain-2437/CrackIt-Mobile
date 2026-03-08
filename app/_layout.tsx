@@ -20,10 +20,12 @@ SplashScreen.preventAutoHideAsync();
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerBackTitle: "Back" }}>
+      <Stack.Screen name="auth" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="exam" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="result" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="chatbot" options={{ headerShown: false }} />
     </Stack>
   );
 }

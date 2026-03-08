@@ -171,3 +171,91 @@ export function getTopicStrength(userData: UserData, subject: string, topic: str
   if (accuracy < 0.75) return "moderate";
   return "strong";
 }
+
+export interface AdaptiveState {
+  currentDifficulty: Difficulty;
+  consecutiveCorrect: number;
+  consecutiveWrong: number;
+  difficultyProgression: Difficulty[];
+  usedQuestionIds: Set<string>;
+}
+
+export function createAdaptiveState(): AdaptiveState {
+  return {
+    currentDifficulty: "medium",
+    consecutiveCorrect: 0,
+    consecutiveWrong: 0,
+    difficultyProgression: ["medium"],
+    usedQuestionIds: new Set(),
+  };
+}
+
+export function updateAdaptiveState(state: AdaptiveState, isCorrect: boolean): AdaptiveState {
+  const newState = { ...state, difficultyProgression: [...state.difficultyProgression], usedQuestionIds: new Set(state.usedQuestionIds) };
+
+  if (isCorrect) {
+    newState.consecutiveCorrect = state.consecutiveCorrect + 1;
+    newState.consecutiveWrong = 0;
+  } else {
+    newState.consecutiveWrong = state.consecutiveWrong + 1;
+    newState.consecutiveCorrect = 0;
+  }
+
+  let newDifficulty = state.currentDifficulty;
+
+  if (newState.consecutiveCorrect >= 2) {
+    if (state.currentDifficulty === "easy") newDifficulty = "medium";
+    else if (state.currentDifficulty === "medium") newDifficulty = "hard";
+    if (newDifficulty !== state.currentDifficulty) {
+      newState.consecutiveCorrect = 0;
+    }
+  }
+
+  if (newState.consecutiveWrong >= 2) {
+    if (state.currentDifficulty === "hard") newDifficulty = "medium";
+    else if (state.currentDifficulty === "medium") newDifficulty = "easy";
+    if (newDifficulty !== state.currentDifficulty) {
+      newState.consecutiveWrong = 0;
+    }
+  }
+
+  newState.currentDifficulty = newDifficulty;
+  newState.difficultyProgression.push(newDifficulty);
+
+  return newState;
+}
+
+export function getNextAdaptiveQuestion(
+  examType: ExamType,
+  difficulty: Difficulty,
+  usedIds: Set<string>,
+  language?: Language,
+): Question | null {
+  let pool = getQuestionsForExamType(examType, language);
+  if (pool.length === 0) {
+    pool = getQuestionsForExamType(examType);
+  }
+
+  const available = pool.filter((q) => !usedIds.has(q.id));
+  if (available.length === 0) return null;
+
+  const exactMatch = available.filter((q) => q.difficulty === difficulty);
+  if (exactMatch.length > 0) {
+    return exactMatch[Math.floor(Math.random() * exactMatch.length)];
+  }
+
+  const adjacent: Difficulty[] = difficulty === "medium" ? ["easy", "hard"] : difficulty === "easy" ? ["medium"] : ["medium"];
+  const adjacentMatch = available.filter((q) => adjacent.includes(q.difficulty));
+  if (adjacentMatch.length > 0) {
+    return adjacentMatch[Math.floor(Math.random() * adjacentMatch.length)];
+  }
+
+  return available[Math.floor(Math.random() * available.length)];
+}
+
+export function getAdaptiveInitialQuestion(
+  examType: ExamType,
+  language?: Language,
+): Question | null {
+  return getNextAdaptiveQuestion(examType, "medium", new Set(), language);
+}

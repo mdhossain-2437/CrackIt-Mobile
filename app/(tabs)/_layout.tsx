@@ -24,6 +24,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
         <Label>{tr("nav.ai")}</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="analytics">
+        <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
+        <Label>{tr("nav.analytics")}</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>{tr("nav.profile")}</Label>
@@ -48,7 +52,7 @@ function ClassicTabLayout() {
         tabBarInactiveTintColor: theme.tabIconDefault,
         tabBarLabelStyle: {
           fontFamily: "Inter_500Medium",
-          fontSize: 11,
+          fontSize: 10,
         },
         tabBarStyle: {
           position: "absolute" as const,
@@ -94,6 +98,15 @@ function ClassicTabLayout() {
           title: tr("nav.ai"),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "sparkles" : "sparkles-outline"} size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="analytics"
+        options={{
+          title: tr("nav.analytics"),
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "bar-chart" : "bar-chart-outline"} size={22} color={color} />
           ),
         }}
       />

@@ -17,20 +17,31 @@ import {
   getSubjectsForExamType,
   getQuestionsForSubject,
   shuffleArray,
+  getRecommendedExamTypes,
   type ExamType,
   type SubjectInfo,
 } from "@/lib/questions";
-import { getAdaptiveQuestions, getTopicStrength } from "@/lib/algorithm";
+import { getAdaptiveQuestions, getTopicStrength, getNextAdaptiveQuestion } from "@/lib/algorithm";
 
 export default function PracticeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { userData, startExam, tr, language } = useApp();
+  const { userData, startExam, tr, language, authUser, isAuthenticated } = useApp();
   const [selectedExamType, setSelectedExamType] = useState<ExamType>(userData.examType);
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const subjects = getSubjectsForExamType(selectedExamType);
+  const recommendedTypes = isAuthenticated && authUser?.educationLevel
+    ? getRecommendedExamTypes(authUser.educationLevel)
+    : [];
+  const sortedExamTypes = recommendedTypes.length > 0
+    ? [...EXAM_TYPES].sort((a, b) => {
+        const aRec = recommendedTypes.includes(a.id) ? 0 : 1;
+        const bRec = recommendedTypes.includes(b.id) ? 0 : 1;
+        return aRec - bRec;
+      })
+    : EXAM_TYPES;
 
   const handleTopicPress = (subject: SubjectInfo, topic: string) => {
     const questions = shuffleArray(getQuestionsForSubject(subject.name, topic)).slice(0, 10);
@@ -69,6 +80,19 @@ export default function PracticeScreen() {
     router.push("/exam");
   };
 
+  const handleAdaptiveMode = () => {
+    const initialQ = getNextAdaptiveQuestion(selectedExamType, "medium", new Set(), language);
+    if (!initialQ) return;
+    startExam({
+      subject: tr("adaptive.title"),
+      count: 10,
+      timePerQuestion: 90,
+      questions: [initialQ],
+      adaptive: true,
+    });
+    router.push("/exam");
+  };
+
   const strengthColor = (strength: string) => {
     switch (strength) {
       case "weak": return colors.error;
@@ -94,8 +118,9 @@ export default function PracticeScreen() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.examTypesRow}
       >
-        {EXAM_TYPES.map((exam) => {
+        {sortedExamTypes.map((exam) => {
           const isSelected = selectedExamType === exam.id;
+          const isRecommended = recommendedTypes.includes(exam.id);
           return (
             <Pressable
               key={exam.id}
@@ -103,7 +128,7 @@ export default function PracticeScreen() {
                 styles.examTypeChip,
                 {
                   backgroundColor: isSelected ? colors.primary : colors.surface,
-                  borderColor: isSelected ? colors.primary : colors.border,
+                  borderColor: isSelected ? colors.primary : isRecommended ? colors.primary + "60" : colors.border,
                 },
               ]}
               onPress={() => {
@@ -114,13 +139,13 @@ export default function PracticeScreen() {
               <Ionicons
                 name={exam.icon as any}
                 size={16}
-                color={isSelected ? "#FFFFFF" : colors.textSecondary}
+                color={isSelected ? "#FFFFFF" : isRecommended ? colors.primary : colors.textSecondary}
               />
               <Text
                 style={[
                   styles.examTypeText,
                   {
-                    color: isSelected ? "#FFFFFF" : colors.text,
+                    color: isSelected ? "#FFFFFF" : isRecommended ? colors.primary : colors.text,
                     fontFamily: "Inter_600SemiBold",
                   },
                 ]}
@@ -146,6 +171,22 @@ export default function PracticeScreen() {
           </Text>
         </View>
         <Ionicons name="arrow-forward" size={20} color={colors.primary} />
+      </Pressable>
+
+      <Pressable
+        style={[styles.adaptiveModeCard, { backgroundColor: colors.warningLight, borderColor: colors.warning + "40" }]}
+        onPress={handleAdaptiveMode}
+      >
+        <Ionicons name="speedometer" size={22} color={colors.warning} />
+        <View style={styles.adaptiveInfo}>
+          <Text style={[styles.adaptiveTitle, { color: colors.warning, fontFamily: "Inter_600SemiBold" }]}>
+            {tr("adaptive.title")}
+          </Text>
+          <Text style={[styles.adaptiveDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+            {tr("adaptive.practiceDesc")}
+          </Text>
+        </View>
+        <Ionicons name="arrow-forward" size={20} color={colors.warning} />
       </Pressable>
 
       {subjects.map((subject) => {
@@ -262,6 +303,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginHorizontal: 20,
+    marginBottom: 10,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+  },
+  adaptiveModeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 20,
     marginBottom: 16,
     padding: 14,
     borderRadius: 12,
@@ -279,6 +330,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   subjectIconWrap: {
     width: 40,

@@ -8,8 +8,10 @@ import {
   Alert,
   Platform,
 } from "react-native";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 import { EXAM_TYPES } from "@/lib/questions";
@@ -18,7 +20,7 @@ import type { Language } from "@/lib/i18n";
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { userData, setExamType, setLanguage, resetProgress, tr, language } = useApp();
+  const { userData, setExamType, setLanguage, resetProgress, tr, language, authUser, isAuthenticated, logoutUser } = useApp();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const examTypeInfo = EXAM_TYPES.find((e) => e.id === userData.examType);
@@ -33,7 +35,6 @@ export default function ProfileScreen() {
       : 0;
 
   const examName = language === "bn" ? examTypeInfo?.nameBn : examTypeInfo?.name;
-  const examDesc = language === "bn" ? examTypeInfo?.descriptionBn : examTypeInfo?.description;
 
   const handleReset = () => {
     if (Platform.OS === "web") {
@@ -52,6 +53,14 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleLogout = async () => {
+    await logoutUser();
+  };
+
+  const handleLogin = () => {
+    router.push("/auth");
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -63,24 +72,59 @@ export default function ProfileScreen() {
         {tr("profile.title")}
       </Text>
 
-      <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+      <Animated.View entering={FadeInDown.delay(100).duration(400)} style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
         <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
           <Ionicons name="person" size={32} color="#FFFFFF" />
         </View>
         <View style={styles.profileInfo}>
           <Text style={[styles.profileName, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-            {tr("profile.student")}
+            {isAuthenticated && authUser ? authUser.name : tr("profile.student")}
           </Text>
-          <View style={[styles.examTag, { backgroundColor: colors.primaryLight }]}>
-            <Ionicons name={examTypeInfo?.icon as any} size={14} color={colors.primary} />
-            <Text style={[styles.examTagText, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
-              {examName} {tr("profile.preparation")}
+          {isAuthenticated && authUser && (
+            <Text style={[styles.profileEmail, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {authUser.email}
             </Text>
+          )}
+          <View style={styles.tagRow}>
+            <View style={[styles.examTag, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name={examTypeInfo?.icon as any} size={14} color={colors.primary} />
+              <Text style={[styles.examTagText, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+                {examName} {tr("profile.preparation")}
+              </Text>
+            </View>
+            {isAuthenticated && authUser?.educationLevel && (
+              <View style={[styles.examTag, { backgroundColor: colors.successLight }]}>
+                <Ionicons name="school-outline" size={14} color={colors.success} />
+                <Text style={[styles.examTagText, { color: colors.success, fontFamily: "Inter_600SemiBold" }]}>
+                  {tr(`education.${authUser.educationLevel}`)}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
-      </View>
+      </Animated.View>
 
-      <View style={styles.statsGrid}>
+      {!isAuthenticated && (
+        <Animated.View entering={FadeInDown.delay(150).duration(400)}>
+          <Pressable
+            style={[styles.loginPrompt, { backgroundColor: colors.primaryLight, borderColor: colors.primary + "40" }]}
+            onPress={handleLogin}
+          >
+            <Ionicons name="log-in-outline" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.loginPromptTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+                {tr("auth.login")} / {tr("auth.register")}
+              </Text>
+              <Text style={[styles.loginPromptDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                {language === "bn" ? "আপনার অগ্রগতি সংরক্ষণ করুন" : "Save your progress across devices"}
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward" size={18} color={colors.primary} />
+          </Pressable>
+        </Animated.View>
+      )}
+
+      <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.statsGrid}>
         <View style={[styles.statItem, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
           <Ionicons name="flame" size={24} color={colors.streak} />
           <Text style={[styles.statValue, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
@@ -117,80 +161,84 @@ export default function ProfileScreen() {
             {tr("profile.avgScore")}
           </Text>
         </View>
-      </View>
+      </Animated.View>
 
-      <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        {tr("profile.language")}
-      </Text>
-      <View style={styles.langRow}>
-        {(["en", "bn"] as Language[]).map((lang) => {
-          const isSelected = language === lang;
-          return (
-            <Pressable
-              key={lang}
-              style={[
-                styles.langItem,
-                {
-                  backgroundColor: isSelected ? colors.primaryLight : colors.surface,
-                  borderColor: isSelected ? colors.primary : colors.borderLight,
-                },
-              ]}
-              onPress={() => setLanguage(lang)}
-            >
-              <Text style={{ fontSize: 22 }}>{lang === "en" ? "🇬🇧" : "🇧🇩"}</Text>
-              <Text style={[styles.langText, { color: isSelected ? colors.primary : colors.text, fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
-                {lang === "en" ? "English" : "বাংলা"}
-              </Text>
-              {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-        {tr("profile.examType")}
-      </Text>
-      <View style={styles.examTypeList}>
-        {EXAM_TYPES.map((exam) => {
-          const isSelected = userData.examType === exam.id;
-          const name = language === "bn" ? exam.nameBn : exam.name;
-          const desc = language === "bn" ? exam.descriptionBn : exam.description;
-          return (
-            <Pressable
-              key={exam.id}
-              style={[
-                styles.examTypeItem,
-                {
-                  backgroundColor: isSelected ? colors.primaryLight : colors.surface,
-                  borderColor: isSelected ? colors.primary : colors.borderLight,
-                },
-              ]}
-              onPress={() => setExamType(exam.id)}
-            >
-              <Ionicons
-                name={exam.icon as any}
-                size={20}
-                color={isSelected ? colors.primary : colors.textSecondary}
-              />
-              <Text
+      <Animated.View entering={FadeInDown.delay(300).duration(400)}>
+        <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+          {tr("profile.language")}
+        </Text>
+        <View style={styles.langRow}>
+          {(["en", "bn"] as Language[]).map((lang) => {
+            const isSelected = language === lang;
+            return (
+              <Pressable
+                key={lang}
                 style={[
-                  styles.examTypeItemText,
+                  styles.langItem,
                   {
-                    color: isSelected ? colors.primary : colors.text,
-                    fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_400Regular",
+                    backgroundColor: isSelected ? colors.primaryLight : colors.surface,
+                    borderColor: isSelected ? colors.primary : colors.borderLight,
                   },
                 ]}
+                onPress={() => setLanguage(lang)}
               >
-                {name} - {desc}
-              </Text>
-              {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
-            </Pressable>
-          );
-        })}
-      </View>
+                <Text style={{ fontSize: 22 }}>{lang === "en" ? "🇬🇧" : "🇧🇩"}</Text>
+                <Text style={[styles.langText, { color: isSelected ? colors.primary : colors.text, fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
+                  {lang === "en" ? "English" : "বাংলা"}
+                </Text>
+                {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
+              </Pressable>
+            );
+          })}
+        </View>
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.delay(400).duration(400)}>
+        <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+          {tr("profile.examType")}
+        </Text>
+        <View style={styles.examTypeList}>
+          {EXAM_TYPES.map((exam) => {
+            const isSelected = userData.examType === exam.id;
+            const name = language === "bn" ? exam.nameBn : exam.name;
+            const desc = language === "bn" ? exam.descriptionBn : exam.description;
+            return (
+              <Pressable
+                key={exam.id}
+                style={[
+                  styles.examTypeItem,
+                  {
+                    backgroundColor: isSelected ? colors.primaryLight : colors.surface,
+                    borderColor: isSelected ? colors.primary : colors.borderLight,
+                  },
+                ]}
+                onPress={() => setExamType(exam.id)}
+              >
+                <Ionicons
+                  name={exam.icon as any}
+                  size={20}
+                  color={isSelected ? colors.primary : colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.examTypeItemText,
+                    {
+                      color: isSelected ? colors.primary : colors.text,
+                      fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_400Regular",
+                    },
+                  ]}
+                >
+                  {name} - {desc}
+                </Text>
+                {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
+              </Pressable>
+            );
+          })}
+        </View>
+      </Animated.View>
 
       {Object.keys(userData.subjectProgress).length > 0 && (
-        <>
+        <Animated.View entering={FadeInDown.delay(500).duration(400)}>
           <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold", marginTop: 24 }]}>
             {tr("profile.subjectProgress")}
           </Text>
@@ -220,7 +268,19 @@ export default function ProfileScreen() {
               </View>
             );
           })}
-        </>
+        </Animated.View>
+      )}
+
+      {isAuthenticated && (
+        <Pressable
+          style={[styles.logoutButton, { borderColor: colors.primary }]}
+          onPress={handleLogout}
+        >
+          <Ionicons name="log-out-outline" size={18} color={colors.primary} />
+          <Text style={[styles.logoutText, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+            {tr("auth.logout")}
+          </Text>
+        </Pressable>
       )}
 
       <Pressable
@@ -255,7 +315,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     gap: 14,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   avatar: {
     width: 56,
@@ -264,8 +324,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  profileInfo: { flex: 1, gap: 6 },
+  profileInfo: { flex: 1, gap: 4 },
   profileName: { fontSize: 18 },
+  profileEmail: { fontSize: 13 },
+  tagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 2,
+  },
   examTag: {
     flexDirection: "row",
     alignItems: "center",
@@ -276,6 +343,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   examTagText: { fontSize: 12 },
+  loginPrompt: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  loginPromptTitle: { fontSize: 14, marginBottom: 2 },
+  loginPromptDesc: { fontSize: 12 },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -290,6 +369,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   statValue: { fontSize: 22 },
   statLabel: { fontSize: 12 },
@@ -349,13 +433,25 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   progressMeta: { fontSize: 11 },
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  logoutText: { fontSize: 14 },
   resetButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     marginHorizontal: 20,
-    marginTop: 32,
+    marginTop: 12,
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,

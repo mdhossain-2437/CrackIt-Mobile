@@ -17,36 +17,78 @@ import Animated, {
   withTiming,
   withDelay,
   Easing,
+  FadeIn,
 } from "react-native-reanimated";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
+import type { Difficulty } from "@/lib/questions";
 
 function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: any; label: string }) {
   const progress = useSharedValue(0);
+  const scale = useSharedValue(0.5);
+  const opacity = useSharedValue(0);
+  const [displayScore, setDisplayScore] = useState(0);
 
   useEffect(() => {
+    opacity.value = withTiming(1, { duration: 400 });
+    scale.value = withDelay(100, withTiming(1, { duration: 600, easing: Easing.out(Easing.back(1.5)) }));
     progress.value = withDelay(
       300,
       withTiming(score / 100, { duration: 1200, easing: Easing.out(Easing.cubic) })
     );
+    let frame = 0;
+    const totalFrames = 40;
+    const interval = setInterval(() => {
+      frame++;
+      const t = frame / totalFrames;
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplayScore(Math.round(eased * score));
+      if (frame >= totalFrames) {
+        clearInterval(interval);
+        setDisplayScore(score);
+      }
+    }, 30);
+    return () => clearInterval(interval);
   }, [score]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(1, { duration: 600 }),
-    transform: [{ scale: withDelay(100, withTiming(1, { duration: 500 })) }],
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
   }));
 
   const scoreColor = score >= 70 ? colors.success : score >= 40 ? colors.warning : colors.error;
+  const isHighScore = score >= 80;
 
   return (
-    <Animated.View style={[styles.scoreCircle, { borderColor: scoreColor }, animatedStyle]}>
-      <Text style={[styles.scoreValue, { color: scoreColor, fontFamily: "Inter_700Bold" }]}>
-        {score}%
-      </Text>
-      <Text style={[styles.scoreLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-        {label}
-      </Text>
-    </Animated.View>
+    <View style={styles.scoreContainer}>
+      {isHighScore && (
+        <Animated.View entering={FadeIn.delay(1200).duration(600)} style={styles.celebrationRow}>
+          <Ionicons name="star" size={20} color={colors.warning} />
+          <Ionicons name="trophy" size={24} color={colors.warning} />
+          <Ionicons name="star" size={20} color={colors.warning} />
+        </Animated.View>
+      )}
+      <Animated.View style={[styles.scoreCircle, {
+        borderColor: scoreColor,
+        shadowColor: scoreColor,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+        elevation: 8,
+      }, animatedStyle]}>
+        <Text style={[styles.scoreValue, { color: scoreColor, fontFamily: "Inter_700Bold" }]}>
+          {displayScore}%
+        </Text>
+        <Text style={[styles.scoreLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+          {label}
+        </Text>
+      </Animated.View>
+      {isHighScore && (
+        <Animated.Text entering={FadeIn.delay(1400).duration(500)} style={[styles.celebrationText, { color: colors.success, fontFamily: "Inter_600SemiBold" }]}>
+          Excellent!
+        </Animated.Text>
+      )}
+    </View>
   );
 }
 
@@ -163,6 +205,22 @@ function QuestionReviewItem({
   );
 }
 
+function difficultyColor(diff: Difficulty, colors: any): string {
+  return diff === "easy" ? colors.success : diff === "medium" ? colors.warning : colors.error;
+}
+
+function difficultyBgColor(diff: Difficulty, colors: any): string {
+  return diff === "easy" ? colors.successLight : diff === "medium" ? colors.warningLight : colors.errorLight;
+}
+
+function countDifficultyChanges(progression: Difficulty[]): number {
+  let changes = 0;
+  for (let i = 1; i < progression.length; i++) {
+    if (progression[i] !== progression[i - 1]) changes++;
+  }
+  return changes;
+}
+
 export default function ResultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -252,6 +310,71 @@ export default function ResultScreen() {
           </View>
         </View>
 
+        {lastResult.adaptive && lastResult.difficultyProgression && lastResult.difficultyProgression.length > 1 && (
+          <View style={[styles.progressionSection, { marginHorizontal: 16, marginBottom: 24 }]}>
+            <Text style={[styles.reviewTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+              {tr("adaptive.progression")}
+            </Text>
+
+            <View style={[styles.progressionCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+              <View style={styles.progressionRow}>
+                <View style={styles.progressionEndpoint}>
+                  <Text style={[styles.progressionEndLabel, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                    {tr("adaptive.started")}
+                  </Text>
+                  <View style={[styles.progressionEndBadge, {
+                    backgroundColor: difficultyBgColor(lastResult.difficultyProgression[0], colors),
+                  }]}>
+                    <Text style={[styles.progressionEndText, {
+                      color: difficultyColor(lastResult.difficultyProgression[0], colors),
+                      fontFamily: "Inter_600SemiBold",
+                    }]}>
+                      {tr(`difficulty.${lastResult.difficultyProgression[0]}`)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.progressionArrow}>
+                  <Ionicons name="arrow-forward" size={16} color={colors.textTertiary} />
+                </View>
+
+                <View style={styles.progressionEndpoint}>
+                  <Text style={[styles.progressionEndLabel, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                    {tr("adaptive.ended")}
+                  </Text>
+                  <View style={[styles.progressionEndBadge, {
+                    backgroundColor: difficultyBgColor(lastResult.difficultyProgression[lastResult.difficultyProgression.length - 1], colors),
+                  }]}>
+                    <Text style={[styles.progressionEndText, {
+                      color: difficultyColor(lastResult.difficultyProgression[lastResult.difficultyProgression.length - 1], colors),
+                      fontFamily: "Inter_600SemiBold",
+                    }]}>
+                      {tr(`difficulty.${lastResult.difficultyProgression[lastResult.difficultyProgression.length - 1]}`)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.progressionTimeline}>
+                {lastResult.difficultyProgression.map((diff: Difficulty, idx: number) => (
+                  <View key={idx} style={styles.progressionDotWrap}>
+                    <View style={[styles.progressionDot, { backgroundColor: difficultyColor(diff, colors) }]} />
+                    {idx < lastResult.difficultyProgression!.length - 1 && (
+                      <View style={[styles.progressionLine, { backgroundColor: colors.borderLight }]} />
+                    )}
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.progressionLegend}>
+                <Text style={[styles.progressionLegendText, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                  {tr("adaptive.levelChanges")}: {countDifficultyChanges(lastResult.difficultyProgression)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         <View style={styles.reviewSection}>
           <Text style={[styles.reviewTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
             {tr("result.reviewAnswers")}
@@ -300,16 +423,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 24,
   },
+  scoreContainer: {
+    alignItems: "center",
+  },
+  celebrationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  celebrationText: {
+    fontSize: 18,
+    marginTop: 12,
+  },
   scoreCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 4,
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    borderWidth: 5,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
   },
-  scoreValue: { fontSize: 36 },
+  scoreValue: { fontSize: 38 },
   scoreLabel: { fontSize: 13, marginTop: 2 },
   subjectTitle: { fontSize: 16, textAlign: "center" },
   statsRow: {
@@ -395,4 +531,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   doneButtonText: { fontSize: 16, color: "#FFFFFF" },
+  progressionSection: {},
+  progressionCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 8,
+  },
+  progressionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  progressionEndpoint: {
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  progressionEndLabel: { fontSize: 11 },
+  progressionEndBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  progressionEndText: { fontSize: 13 },
+  progressionArrow: {
+    paddingHorizontal: 8,
+  },
+  progressionTimeline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  progressionDotWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  progressionDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  progressionLine: {
+    width: 16,
+    height: 2,
+  },
+  progressionLegend: {
+    alignItems: "center",
+  },
+  progressionLegendText: { fontSize: 12 },
 });
