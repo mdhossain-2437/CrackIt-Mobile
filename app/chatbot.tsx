@@ -94,6 +94,9 @@ function SuggestionChip({ text, icon, onPress, colors }: { text: string; icon: s
     <Pressable
       style={[styles.chip, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={text}
+      accessibilityHint="Sends this suggestion to the AI coach"
     >
       <Ionicons name={icon as any} size={14} color={colors.primary} />
       <Text style={[styles.chipText, { color: colors.text }]} numberOfLines={1}>
@@ -294,7 +297,7 @@ export default function ChatbotScreen() {
     >
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { paddingTop: topInset + 8, backgroundColor: colors.surface, borderBottomColor: colors.borderLight }]}>
-          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+          <Pressable onPress={() => router.back()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel={tr("common.back")}>
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
           <View style={styles.headerCenter}>
@@ -430,11 +433,15 @@ export default function ChatbotScreen() {
               maxLength={2000}
               onSubmitEditing={() => sendMessage(input)}
               returnKeyType="send"
+              accessibilityLabel={tr("chatbot.placeholder")}
             />
             <Pressable
               style={[styles.sendBtn, { backgroundColor: input.trim() && !isLoading ? colors.primary : colors.border }]}
               onPress={() => sendMessage(input)}
               disabled={!input.trim() || isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={tr("chatbot.send")}
+              accessibilityState={{ disabled: !input.trim() || isLoading }}
             >
               <Ionicons name="send" size={16} color="#FFFFFF" />
             </Pressable>

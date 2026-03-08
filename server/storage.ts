@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, desc, sql, gte } from "drizzle-orm";
+import { eq, and, desc, sql, gte, asc } from "drizzle-orm";
 import pg from "pg";
 import {
   users,
@@ -7,12 +7,22 @@ import {
   userProgress,
   communityQuestions,
   studySessions,
+  questionAttempts,
+  dailyGoals,
+  achievements,
+  userAchievements,
+  bookmarks,
   type User,
   type InsertUser,
   type ExamResult,
   type UserProgress,
   type CommunityQuestion,
   type StudySession,
+  type QuestionAttempt,
+  type DailyGoal,
+  type Achievement,
+  type UserAchievement,
+  type Bookmark,
 } from "@shared/schema";
 
 const pool = new pg.Pool({
@@ -47,6 +57,21 @@ export interface IStorage {
   saveStudySession(data: Omit<StudySession, "id" | "createdAt">): Promise<StudySession>;
   getStudySessions(userId: string, days?: number): Promise<StudySession[]>;
   getStudyStats(userId: string): Promise<{ totalMinutes: number; totalQuestions: number; daysActive: number; avgAccuracy: number }>;
+  saveQuestionAttempt(data: Omit<QuestionAttempt, "id" | "createdAt">): Promise<QuestionAttempt>;
+  getQuestionAttempts(userId: string, limit?: number): Promise<QuestionAttempt[]>;
+  getQuestionAttemptsBySubject(userId: string, subject: string): Promise<QuestionAttempt[]>;
+  getDailyGoal(userId: string, date: string): Promise<DailyGoal | undefined>;
+  createDailyGoal(data: Omit<DailyGoal, "id" | "createdAt">): Promise<DailyGoal>;
+  updateDailyGoal(id: string, data: Partial<DailyGoal>): Promise<DailyGoal | undefined>;
+  getAllAchievements(): Promise<Achievement[]>;
+  getUserAchievements(userId: string): Promise<(UserAchievement & { achievement: Achievement })[]>;
+  awardAchievement(userId: string, achievementId: string): Promise<UserAchievement>;
+  hasAchievement(userId: string, achievementId: string): Promise<boolean>;
+  createBookmark(data: Omit<Bookmark, "id" | "createdAt">): Promise<Bookmark>;
+  deleteBookmark(userId: string, questionId: string): Promise<void>;
+  getBookmarks(userId: string): Promise<Bookmark[]>;
+  hasBookmark(userId: string, questionId: string): Promise<boolean>;
+  getSubjectLeaderboard(subject: string, limit?: number): Promise<LeaderboardEntry[]>;
 }
 
 class PgStorage implements IStorage {
@@ -268,6 +293,141 @@ class PgStorage implements IStorage {
     const uniqueDays = new Set(sessions.map(s => s.date)).size;
     const avgAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
     return { totalMinutes, totalQuestions, daysActive: uniqueDays, avgAccuracy };
+  }
+  async saveQuestionAttempt(data: Omit<QuestionAttempt, "id" | "createdAt">): Promise<QuestionAttempt> {
+    const [attempt] = await db.insert(questionAttempts).values(data).returning();
+    return attempt;
+  }
+
+  async getQuestionAttempts(userId: string, limit: number = 100): Promise<QuestionAttempt[]> {
+    return db
+      .select()
+      .from(questionAttempts)
+      .where(eq(questionAttempts.userId, userId))
+      .orderBy(desc(questionAttempts.createdAt))
+      .limit(limit);
+  }
+
+  async getQuestionAttemptsBySubject(userId: string, subject: string): Promise<QuestionAttempt[]> {
+    return db
+      .select()
+      .from(questionAttempts)
+      .where(and(eq(questionAttempts.userId, userId), eq(questionAttempts.subject, subject)))
+      .orderBy(desc(questionAttempts.createdAt));
+  }
+
+  async getDailyGoal(userId: string, date: string): Promise<DailyGoal | undefined> {
+    const [goal] = await db
+      .select()
+      .from(dailyGoals)
+      .where(and(eq(dailyGoals.userId, userId), eq(dailyGoals.date, date)))
+      .limit(1);
+    return goal;
+  }
+
+  async createDailyGoal(data: Omit<DailyGoal, "id" | "createdAt">): Promise<DailyGoal> {
+    const [goal] = await db.insert(dailyGoals).values(data).returning();
+    return goal;
+  }
+
+  async updateDailyGoal(id: string, data: Partial<DailyGoal>): Promise<DailyGoal | undefined> {
+    const [goal] = await db.update(dailyGoals).set(data).where(eq(dailyGoals.id, id)).returning();
+    return goal;
+  }
+
+  async getAllAchievements(): Promise<Achievement[]> {
+    return db.select().from(achievements).orderBy(asc(achievements.category));
+  }
+
+  async getUserAchievements(userId: string): Promise<(UserAchievement & { achievement: Achievement })[]> {
+    const rows = await db
+      .select({
+        id: userAchievements.id,
+        userId: userAchievements.userId,
+        achievementId: userAchievements.achievementId,
+        earnedAt: userAchievements.earnedAt,
+        achievement: achievements,
+      })
+      .from(userAchievements)
+      .innerJoin(achievements, eq(userAchievements.achievementId, achievements.id))
+      .where(eq(userAchievements.userId, userId))
+      .orderBy(desc(userAchievements.earnedAt));
+
+    return rows.map(r => ({
+      id: r.id,
+      userId: r.userId,
+      achievementId: r.achievementId,
+      earnedAt: r.earnedAt,
+      achievement: r.achievement,
+    }));
+  }
+
+  async awardAchievement(userId: string, achievementId: string): Promise<UserAchievement> {
+    const [ua] = await db.insert(userAchievements).values({ userId, achievementId }).returning();
+    return ua;
+  }
+
+  async hasAchievement(userId: string, achievementId: string): Promise<boolean> {
+    const [existing] = await db
+      .select()
+      .from(userAchievements)
+      .where(and(eq(userAchievements.userId, userId), eq(userAchievements.achievementId, achievementId)))
+      .limit(1);
+    return !!existing;
+  }
+
+  async createBookmark(data: Omit<Bookmark, "id" | "createdAt">): Promise<Bookmark> {
+    const [bm] = await db.insert(bookmarks).values(data).returning();
+    return bm;
+  }
+
+  async deleteBookmark(userId: string, questionId: string): Promise<void> {
+    await db
+      .delete(bookmarks)
+      .where(and(eq(bookmarks.userId, userId), eq(bookmarks.questionId, questionId)));
+  }
+
+  async getBookmarks(userId: string): Promise<Bookmark[]> {
+    return db
+      .select()
+      .from(bookmarks)
+      .where(eq(bookmarks.userId, userId))
+      .orderBy(desc(bookmarks.createdAt));
+  }
+
+  async hasBookmark(userId: string, questionId: string): Promise<boolean> {
+    const [existing] = await db
+      .select()
+      .from(bookmarks)
+      .where(and(eq(bookmarks.userId, userId), eq(bookmarks.questionId, questionId)))
+      .limit(1);
+    return !!existing;
+  }
+
+  async getSubjectLeaderboard(subject: string, limit: number = 10): Promise<LeaderboardEntry[]> {
+    const rows = await db
+      .select({
+        userId: examResults.userId,
+        name: users.name,
+        xp: sql<number>`COALESCE(SUM(${examResults.correctAnswers} * 10 + CASE WHEN ${examResults.score} >= 80 THEN 50 WHEN ${examResults.score} >= 60 THEN 25 ELSE 0 END), 0)`.as("xp"),
+        streak: users.streak,
+        totalQuestionsSolved: sql<number>`COALESCE(SUM(${examResults.totalQuestions}), 0)`.as("totalQuestionsSolved"),
+      })
+      .from(examResults)
+      .innerJoin(users, eq(examResults.userId, users.id))
+      .where(eq(examResults.subject, subject))
+      .groupBy(examResults.userId, users.name, users.streak)
+      .orderBy(sql`xp DESC`)
+      .limit(limit);
+
+    return rows.map((r, idx) => ({
+      rank: idx + 1,
+      userId: r.userId,
+      name: r.name,
+      xp: Number(r.xp),
+      streak: r.streak,
+      totalQuestionsSolved: Number(r.totalQuestionsSolved),
+    }));
   }
 }
 

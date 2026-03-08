@@ -696,6 +696,598 @@ Return ONLY a valid JSON array with this exact format, no other text:
     }
   });
 
+  app.post("/api/question-attempt", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { questionId, isCorrect, timeSpent, difficultyAtAttempt, subject, topic } = req.body;
+
+      if (!questionId || isCorrect === undefined || !subject || !topic) {
+        return res.status(400).json({ error: "Missing required fields: questionId, isCorrect, subject, topic" });
+      }
+
+      const attempt = await storage.saveQuestionAttempt({
+        userId,
+        questionId,
+        isCorrect: !!isCorrect,
+        timeSpent: timeSpent || 0,
+        difficultyAtAttempt: difficultyAtAttempt || "medium",
+        subject,
+        topic,
+      });
+
+      await storage.upsertProgress(userId, subject, topic, !!isCorrect);
+
+      res.json({ attempt });
+    } catch (error: any) {
+      console.error("Question attempt error:", error);
+      res.status(500).json({ error: "Failed to save question attempt" });
+    }
+  });
+
+  app.get("/api/adaptive-session", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ error: "User not found" });
+
+      const count = Math.min(parseInt(req.query.count as string) || 10, 50);
+      const examType = (req.query.examType as string) || user.examType;
+      const language = (req.query.language as string) || user.language;
+
+      const progress = await storage.getProgress(userId);
+      const examHistory = await storage.getExamResults(userId, 20);
+
+      const topicProgress: Record<string, { total: number; correct: number; lastPracticed: string; consecutiveCorrect: number }> = {};
+      const subjectProgress: Record<string, { total: number; correct: number }> = {};
+
+      for (const p of progress) {
+        const key = `${p.subject}::${p.topic}`;
+        topicProgress[key] = {
+          total: p.total,
+          correct: p.correct,
+          lastPracticed: p.lastPracticed,
+          consecutiveCorrect: p.consecutiveCorrect,
+        };
+        if (!subjectProgress[p.subject]) {
+          subjectProgress[p.subject] = { total: 0, correct: 0 };
+        }
+        subjectProgress[p.subject].total += p.total;
+        subjectProgress[p.subject].correct += p.correct;
+      }
+
+      const userData = {
+        examType: examType as any,
+        streak: user.streak,
+        lastPracticeDate: user.lastPracticeDate,
+        totalQuestionsSolved: user.totalQuestionsSolved,
+        totalCorrect: user.totalCorrect,
+        subjectProgress,
+        topicProgress,
+        examHistory: examHistory.map(e => ({
+          id: e.id,
+          date: e.createdAt?.toISOString() || "",
+          subject: e.subject,
+          topic: e.topic || undefined,
+          totalQuestions: e.totalQuestions,
+          correctAnswers: e.correctAnswers,
+          wrongAnswers: e.wrongAnswers,
+          skipped: e.skipped,
+          score: e.score,
+          totalTime: e.totalTime,
+          examMode: e.examMode as any,
+          answers: [],
+          questions: [],
+        })),
+        onboarded: true,
+        xp: user.xp,
+        language: language as any,
+      };
+
+      const { getAdaptiveQuestions } = await import("../lib/algorithm");
+      const questions = getAdaptiveQuestions(userData, examType as any, count, language as any);
+
+      res.json({ questions, count: questions.length });
+    } catch (error: any) {
+      console.error("Adaptive session error:", error);
+      res.status(500).json({ error: "Failed to generate adaptive session" });
+    }
+  });
+
+  app.get("/api/spaced-review", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ error: "User not found" });
+
+      const count = Math.min(parseInt(req.query.count as string) || 10, 50);
+      const language = (req.query.language as string) || user.language;
+      const examType = (req.query.examType as string) || user.examType;
+
+      const progress = await storage.getProgress(userId);
+
+      const overdueTopics = progress
+        .filter(p => {
+          if (!p.lastPracticed) return false;
+          const daysSince = (Date.now() - new Date(p.lastPracticed).getTime()) / (1000 * 60 * 60 * 24);
+          return daysSince >= 1;
+        })
+        .map(p => {
+          const daysSince = (Date.now() - new Date(p.lastPracticed).getTime()) / (1000 * 60 * 60 * 24);
+          const accuracy = p.total > 0 ? p.correct / p.total : 0;
+          const stability = Math.max(0.5, accuracy * 5 * (1 + p.consecutiveCorrect * 0.3));
+          const retention = Math.exp(-daysSince / Math.max(stability, 0.1));
+          return {
+            subject: p.subject,
+            topic: p.topic,
+            retention: Math.round(retention * 100),
+            daysSince: Math.round(daysSince),
+            urgency: 1.0 - retention,
+            accuracy: Math.round(accuracy * 100),
+          };
+        })
+        .sort((a, b) => b.urgency - a.urgency);
+
+      const { getQuestionsForExamType, shuffleArray } = await import("../lib/questions");
+      let pool = getQuestionsForExamType(examType as any, language as any);
+      if (pool.length === 0) pool = getQuestionsForExamType(examType as any);
+
+      const reviewQuestions: any[] = [];
+      const usedIds = new Set<string>();
+
+      for (const topic of overdueTopics) {
+        if (reviewQuestions.length >= count) break;
+        const topicQuestions = pool.filter(
+          q => q.subject === topic.subject && q.topic === topic.topic && !usedIds.has(q.id)
+        );
+        if (topicQuestions.length > 0) {
+          const selected = shuffleArray(topicQuestions).slice(0, Math.max(1, Math.ceil(count / overdueTopics.length)));
+          for (const q of selected) {
+            if (reviewQuestions.length < count) {
+              reviewQuestions.push(q);
+              usedIds.add(q.id);
+            }
+          }
+        }
+      }
+
+      res.json({
+        questions: reviewQuestions,
+        count: reviewQuestions.length,
+        overdueTopics: overdueTopics.slice(0, 10),
+        totalOverdue: overdueTopics.length,
+      });
+    } catch (error: any) {
+      console.error("Spaced review error:", error);
+      res.status(500).json({ error: "Failed to get spaced review questions" });
+    }
+  });
+
+  app.get("/api/daily-goal", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ error: "User not found" });
+
+      const today = new Date().toISOString().split("T")[0];
+      let goal = await storage.getDailyGoal(userId, today);
+
+      if (!goal) {
+        const baseTarget = 20;
+        const streakBonus = Math.min(user.streak * 2, 20);
+        const targetQuestions = baseTarget + streakBonus;
+        const targetStudyTime = Math.round(targetQuestions * 1.5);
+
+        goal = await storage.createDailyGoal({
+          userId,
+          date: today,
+          targetQuestions,
+          completedQuestions: 0,
+          targetStudyTime,
+          actualStudyTime: 0,
+          completed: false,
+        });
+      }
+
+      res.json({ goal });
+    } catch (error: any) {
+      console.error("Daily goal error:", error);
+      res.status(500).json({ error: "Failed to get daily goal" });
+    }
+  });
+
+  app.post("/api/daily-goal/complete", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { questionsCompleted, studyTimeMinutes } = req.body;
+
+      const today = new Date().toISOString().split("T")[0];
+      let goal = await storage.getDailyGoal(userId, today);
+
+      if (!goal) {
+        return res.status(404).json({ error: "No daily goal found for today" });
+      }
+
+      const newCompleted = goal.completedQuestions + (questionsCompleted || 0);
+      const newStudyTime = goal.actualStudyTime + (studyTimeMinutes || 0);
+      const isCompleted = newCompleted >= goal.targetQuestions;
+
+      goal = await storage.updateDailyGoal(goal.id, {
+        completedQuestions: newCompleted,
+        actualStudyTime: newStudyTime,
+        completed: isCompleted,
+      });
+
+      res.json({ goal, justCompleted: isCompleted && !goal?.completed });
+    } catch (error: any) {
+      console.error("Daily goal complete error:", error);
+      res.status(500).json({ error: "Failed to update daily goal" });
+    }
+  });
+
+  app.get("/api/achievements", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const allAchievements = await storage.getAllAchievements();
+      const userAchievementsList = await storage.getUserAchievements(userId);
+      const earnedIds = new Set(userAchievementsList.map(ua => ua.achievementId));
+
+      const result = allAchievements.map(a => ({
+        ...a,
+        earned: earnedIds.has(a.id),
+        earnedAt: userAchievementsList.find(ua => ua.achievementId === a.id)?.earnedAt || null,
+      }));
+
+      res.json({
+        achievements: result,
+        totalEarned: userAchievementsList.length,
+        totalAvailable: allAchievements.length,
+      });
+    } catch (error: any) {
+      console.error("Achievements error:", error);
+      res.status(500).json({ error: "Failed to get achievements" });
+    }
+  });
+
+  app.post("/api/achievements/check", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ error: "User not found" });
+
+      const allAchievements = await storage.getAllAchievements();
+      const newlyEarned: any[] = [];
+
+      const progress = await storage.getProgress(userId);
+      const examHistory = await storage.getExamResults(userId, 100);
+      const attempts = await storage.getQuestionAttempts(userId, 1000);
+
+      for (const achievement of allAchievements) {
+        const alreadyHas = await storage.hasAchievement(userId, achievement.id);
+        if (alreadyHas) continue;
+
+        let earned = false;
+        const condition = achievement.condition;
+        const threshold = achievement.threshold;
+
+        switch (condition) {
+          case "total_questions":
+            earned = user.totalQuestionsSolved >= threshold;
+            break;
+          case "streak":
+            earned = user.streak >= threshold;
+            break;
+          case "xp":
+            earned = user.xp >= threshold;
+            break;
+          case "perfect_score":
+            earned = examHistory.some(e => e.score === 100 && e.totalQuestions >= threshold);
+            break;
+          case "subject_mastery": {
+            const subjectAccuracies: Record<string, { total: number; correct: number }> = {};
+            for (const p of progress) {
+              if (!subjectAccuracies[p.subject]) subjectAccuracies[p.subject] = { total: 0, correct: 0 };
+              subjectAccuracies[p.subject].total += p.total;
+              subjectAccuracies[p.subject].correct += p.correct;
+            }
+            earned = Object.values(subjectAccuracies).some(
+              s => s.total >= 20 && (s.correct / s.total) * 100 >= threshold
+            );
+            break;
+          }
+          case "marathon":
+            earned = examHistory.some(e => e.totalQuestions >= threshold);
+            break;
+          case "speed_demon": {
+            earned = attempts.some(
+              a => a.isCorrect && a.timeSpent > 0 && a.timeSpent <= threshold
+            );
+            break;
+          }
+          case "night_owl": {
+            const nightAttempts = attempts.filter(a => {
+              const hour = a.createdAt ? new Date(a.createdAt).getHours() : -1;
+              return hour >= 22 || hour < 4;
+            });
+            earned = nightAttempts.length >= threshold;
+            break;
+          }
+          case "early_bird": {
+            const morningAttempts = attempts.filter(a => {
+              const hour = a.createdAt ? new Date(a.createdAt).getHours() : -1;
+              return hour >= 5 && hour < 8;
+            });
+            earned = morningAttempts.length >= threshold;
+            break;
+          }
+          case "consecutive_correct": {
+            let maxConsecutive = 0;
+            let current = 0;
+            for (const a of attempts.reverse()) {
+              if (a.isCorrect) {
+                current++;
+                maxConsecutive = Math.max(maxConsecutive, current);
+              } else {
+                current = 0;
+              }
+            }
+            earned = maxConsecutive >= threshold;
+            break;
+          }
+          case "total_exams":
+            earned = examHistory.length >= threshold;
+            break;
+          case "daily_goal_streak": {
+            const today = new Date();
+            let goalStreak = 0;
+            for (let i = 0; i < 365; i++) {
+              const d = new Date(today);
+              d.setDate(d.getDate() - i);
+              const dateStr = d.toISOString().split("T")[0];
+              const goal = await storage.getDailyGoal(userId, dateStr);
+              if (goal?.completed) {
+                goalStreak++;
+              } else {
+                break;
+              }
+            }
+            earned = goalStreak >= threshold;
+            break;
+          }
+        }
+
+        if (earned) {
+          const ua = await storage.awardAchievement(userId, achievement.id);
+          if (achievement.xpReward > 0) {
+            await storage.updateUser(userId, { xp: user.xp + achievement.xpReward });
+          }
+          newlyEarned.push({
+            ...achievement,
+            earnedAt: ua.earnedAt,
+          });
+        }
+      }
+
+      res.json({
+        newlyEarned,
+        count: newlyEarned.length,
+      });
+    } catch (error: any) {
+      console.error("Achievement check error:", error);
+      res.status(500).json({ error: "Failed to check achievements" });
+    }
+  });
+
+  app.post("/api/bookmarks", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { questionId, subject, topic, note } = req.body;
+
+      if (!questionId || !subject || !topic) {
+        return res.status(400).json({ error: "Missing required fields: questionId, subject, topic" });
+      }
+
+      const exists = await storage.hasBookmark(userId, questionId);
+      if (exists) {
+        return res.status(409).json({ error: "Question already bookmarked" });
+      }
+
+      const bookmark = await storage.createBookmark({
+        userId,
+        questionId,
+        subject,
+        topic,
+        note: note || "",
+      });
+
+      res.json({ bookmark });
+    } catch (error: any) {
+      console.error("Create bookmark error:", error);
+      res.status(500).json({ error: "Failed to create bookmark" });
+    }
+  });
+
+  app.delete("/api/bookmarks/:questionId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const questionId = req.params.questionId as string;
+
+      await storage.deleteBookmark(userId, questionId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete bookmark error:", error);
+      res.status(500).json({ error: "Failed to delete bookmark" });
+    }
+  });
+
+  app.get("/api/bookmarks", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const bookmarksList = await storage.getBookmarks(userId);
+      res.json({ bookmarks: bookmarksList });
+    } catch (error: any) {
+      console.error("Get bookmarks error:", error);
+      res.status(500).json({ error: "Failed to get bookmarks" });
+    }
+  });
+
+  app.get("/api/analytics/detailed", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ error: "User not found" });
+
+      const progress = await storage.getProgress(userId);
+      const examHistory = await storage.getExamResults(userId, 50);
+      const studySessionsList = await storage.getStudySessions(userId, 30);
+      const attempts = await storage.getQuestionAttempts(userId, 500);
+      const stats = await storage.getStudyStats(userId);
+
+      const subjectAccuracy: Record<string, { total: number; correct: number; accuracy: number }> = {};
+      for (const p of progress) {
+        if (!subjectAccuracy[p.subject]) {
+          subjectAccuracy[p.subject] = { total: 0, correct: 0, accuracy: 0 };
+        }
+        subjectAccuracy[p.subject].total += p.total;
+        subjectAccuracy[p.subject].correct += p.correct;
+      }
+      for (const key of Object.keys(subjectAccuracy)) {
+        const s = subjectAccuracy[key];
+        s.accuracy = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
+      }
+
+      const topicMastery = progress.map(p => ({
+        subject: p.subject,
+        topic: p.topic,
+        total: p.total,
+        correct: p.correct,
+        accuracy: p.total > 0 ? Math.round((p.correct / p.total) * 100) : 0,
+        consecutiveCorrect: p.consecutiveCorrect,
+        lastPracticed: p.lastPracticed,
+      }));
+
+      const heatmap: Record<string, number> = {};
+      for (const session of studySessionsList) {
+        heatmap[session.date] = (heatmap[session.date] || 0) + session.questionsAnswered;
+      }
+      for (const attempt of attempts) {
+        if (attempt.createdAt) {
+          const date = new Date(attempt.createdAt).toISOString().split("T")[0];
+          heatmap[date] = (heatmap[date] || 0) + 1;
+        }
+      }
+
+      const scoreHistory = examHistory.slice(0, 20).map(e => ({
+        date: e.createdAt?.toISOString() || "",
+        score: e.score,
+        subject: e.subject,
+        totalQuestions: e.totalQuestions,
+        correctAnswers: e.correctAnswers,
+      })).reverse();
+
+      const recentScores = examHistory.slice(0, 10).map(e => e.score);
+      const avgRecentScore = recentScores.length > 0
+        ? Math.round(recentScores.reduce((a, b) => a + b, 0) / recentScores.length)
+        : 0;
+      const olderScores = examHistory.slice(10, 20).map(e => e.score);
+      const avgOlderScore = olderScores.length > 0
+        ? Math.round(olderScores.reduce((a, b) => a + b, 0) / olderScores.length)
+        : 0;
+
+      let trend: "improving" | "declining" | "stable" = "stable";
+      if (recentScores.length >= 3 && olderScores.length >= 3) {
+        if (avgRecentScore > avgOlderScore + 5) trend = "improving";
+        else if (avgRecentScore < avgOlderScore - 5) trend = "declining";
+      }
+
+      const timeDistribution = { morning: 0, afternoon: 0, evening: 0, night: 0 };
+      for (const attempt of attempts) {
+        if (attempt.createdAt) {
+          const hour = new Date(attempt.createdAt).getHours();
+          if (hour >= 5 && hour < 12) timeDistribution.morning++;
+          else if (hour >= 12 && hour < 17) timeDistribution.afternoon++;
+          else if (hour >= 17 && hour < 22) timeDistribution.evening++;
+          else timeDistribution.night++;
+        }
+      }
+
+      const totalAccuracy = user.totalQuestionsSolved > 0
+        ? Math.round((user.totalCorrect / user.totalQuestionsSolved) * 100)
+        : 0;
+
+      const predictedScore = Math.round(
+        totalAccuracy * 0.6 +
+        avgRecentScore * 0.3 +
+        Math.min(user.streak, 30) * 0.33
+      );
+
+      res.json({
+        overview: {
+          totalQuestions: user.totalQuestionsSolved,
+          accuracy: totalAccuracy,
+          studyTimeMinutes: stats.totalMinutes,
+          currentStreak: user.streak,
+          xp: user.xp,
+          daysActive: stats.daysActive,
+        },
+        subjectAccuracy,
+        topicMastery,
+        heatmap,
+        scoreHistory,
+        trend,
+        avgRecentScore,
+        predictedScore,
+        timeDistribution,
+        totalExams: examHistory.length,
+      });
+    } catch (error: any) {
+      console.error("Detailed analytics error:", error);
+      res.status(500).json({ error: "Failed to get detailed analytics" });
+    }
+  });
+
+  app.get("/api/leaderboard/weekly", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+      const entries = await storage.getLeaderboard("weekly", limit);
+
+      let currentUserRank: number | null = null;
+      if (req.session?.userId) {
+        currentUserRank = await storage.getUserRank(req.session.userId, "weekly");
+      }
+
+      res.json({
+        entries,
+        currentUserRank,
+        currentUserId: req.session?.userId || null,
+        period: "weekly",
+      });
+    } catch (error: any) {
+      console.error("Weekly leaderboard error:", error);
+      res.status(500).json({ error: "Failed to fetch weekly leaderboard" });
+    }
+  });
+
+  app.get("/api/leaderboard/subject", async (req, res) => {
+    try {
+      const subject = req.query.subject as string | undefined;
+      if (!subject || typeof subject !== "string") {
+        return res.status(400).json({ error: "Subject parameter is required" });
+      }
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+      const entries = await storage.getSubjectLeaderboard(subject, limit);
+
+      res.json({
+        entries,
+        subject,
+        currentUserId: req.session?.userId || null,
+      });
+    } catch (error: any) {
+      console.error("Subject leaderboard error:", error);
+      res.status(500).json({ error: "Failed to fetch subject leaderboard" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

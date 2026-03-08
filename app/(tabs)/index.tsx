@@ -8,6 +8,7 @@ import {
   Platform,
   ActivityIndicator,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,7 +23,6 @@ import Animated, {
   withRepeat,
   withSequence,
   Easing,
-  interpolate,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -35,13 +35,13 @@ import {
   getQuestionsForSubject,
   getQuestionsForExamType,
   shuffleArray,
-  getRecommendedExamTypes,
 } from "@/lib/questions";
-import { getWeakTopics, getAdaptiveQuestions } from "@/lib/algorithm";
+import { getWeakTopics, getAdaptiveQuestions, getSmartDailyMix } from "@/lib/algorithm";
 import { apiRequest } from "@/lib/query-client";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DAILY_GOAL = 10;
+const XP_PER_LEVEL = 500;
 
 interface LeaderboardEntry {
   rank: number;
@@ -59,6 +59,12 @@ interface LeaderboardData {
   period: string;
 }
 
+function getUserLevel(xp: number): { level: number; progress: number; xpInLevel: number; xpForNext: number } {
+  const level = Math.floor(xp / XP_PER_LEVEL) + 1;
+  const xpInLevel = xp % XP_PER_LEVEL;
+  return { level, progress: xpInLevel / XP_PER_LEVEL, xpInLevel, xpForNext: XP_PER_LEVEL };
+}
+
 function getTimeGreeting(tr: (key: string) => string): string {
   const hour = new Date().getHours();
   if (hour < 12) return tr("dashboard.goodMorning");
@@ -66,56 +72,38 @@ function getTimeGreeting(tr: (key: string) => string): string {
   return tr("dashboard.goodEvening");
 }
 
-function ProgressRing({ progress, size, strokeWidth, color, bgColor }: { progress: number; size: number; strokeWidth: number; color: string; bgColor: string }) {
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference * (1 - Math.min(progress, 1));
-
+function ProgressRing({ progress, size, strokeWidth, color, bgColor, children }: { progress: number; size: number; strokeWidth: number; color: string; bgColor: string; children?: React.ReactNode }) {
+  const clampedProgress = Math.min(Math.max(progress, 0), 1);
   return (
-    <View style={{ width: size, height: size }}>
-      <View style={{ position: "absolute", width: size, height: size }}>
-        <View style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          borderWidth: strokeWidth,
-          borderColor: bgColor,
-        }} />
-      </View>
-      <View style={{
-        width: size,
-        height: size,
-        transform: [{ rotate: "-90deg" }],
-      }}>
+    <View
+      style={{ width: size, height: size, justifyContent: "center", alignItems: "center" }}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(clampedProgress * 100) }}
+    >
+      <View style={{ position: "absolute", width: size, height: size, borderRadius: size / 2, borderWidth: strokeWidth, borderColor: bgColor }} />
+      <View style={{ position: "absolute", width: size, height: size, transform: [{ rotate: "-90deg" }] }}>
         <View style={{
           width: size,
           height: size,
           borderRadius: size / 2,
           borderWidth: strokeWidth,
           borderColor: "transparent",
-          borderTopColor: color,
-          borderRightColor: progress > 0.25 ? color : "transparent",
-          borderBottomColor: progress > 0.5 ? color : "transparent",
-          borderLeftColor: progress > 0.75 ? color : "transparent",
+          borderTopColor: clampedProgress > 0 ? color : "transparent",
+          borderRightColor: clampedProgress > 0.25 ? color : "transparent",
+          borderBottomColor: clampedProgress > 0.5 ? color : "transparent",
+          borderLeftColor: clampedProgress > 0.75 ? color : "transparent",
         }} />
       </View>
+      {children}
     </View>
   );
 }
 
-function PressableCard({ children, onPress, style }: { children: React.ReactNode; onPress?: () => void; style?: any }) {
+function PressableCard({ children, onPress, style, accessibilityLabel, accessibilityHint }: { children: React.ReactNode; onPress?: () => void; style?: any; accessibilityLabel?: string; accessibilityHint?: string }) {
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
-
-  const handlePressIn = () => {
-    scale.value = withSpring(0.96, { damping: 15, stiffness: 300 });
-  };
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 12, stiffness: 200 });
-  };
 
   return (
     <Pressable
@@ -125,8 +113,11 @@ function PressableCard({ children, onPress, style }: { children: React.ReactNode
         }
         onPress?.();
       }}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+      onPressIn={() => { scale.value = withSpring(0.96, { damping: 15, stiffness: 300 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { damping: 12, stiffness: 200 }); }}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
     >
       <Animated.View style={[animatedStyle, style]}>
         {children}
@@ -154,20 +145,20 @@ function StreakFlame({ streak, colors }: { streak: number; colors: any }) {
   }));
 
   return (
-    <Animated.View style={flameStyle}>
+    <Animated.View style={flameStyle} accessibilityLabel={`${streak} day streak`}>
       <Ionicons name="flame" size={22} color={colors.streak} />
     </Animated.View>
   );
 }
 
 function AnimatedStatCard({ icon, value, label, iconColor, colors, delay }: { icon: string; value: string | number; label: string; iconColor: string; colors: any; delay: number }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
   return (
-    <Animated.View entering={FadeInDown.delay(delay).duration(400)} style={[animStyle, styles.glassStatCard]}>
+    <Animated.View
+      entering={FadeInDown.delay(delay).duration(400)}
+      style={styles.glassStatCard}
+      accessibilityRole="text"
+      accessibilityLabel={`${label}: ${value}`}
+    >
       {Platform.OS === "ios" ? (
         <BlurView intensity={40} tint="light" style={[StyleSheet.absoluteFill, { borderRadius: 16 }]} />
       ) : null}
@@ -183,57 +174,109 @@ function AnimatedStatCard({ icon, value, label, iconColor, colors, delay }: { ic
   );
 }
 
-function SubjectCardItem({ subject, progress, language, colors, onPress, idx }: any) {
+function StudyStreakCalendar({ userData, colors, tr }: { userData: any; colors: any; tr: (key: string) => string }) {
+  const last7Days = useMemo(() => {
+    const days = [];
+    const today = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      const questionsOnDay = userData.examHistory.filter(
+        (e: any) => e.date.startsWith(dateStr)
+      ).reduce((sum: number, e: any) => sum + e.totalQuestions, 0);
+      days.push({
+        date: d,
+        dateStr,
+        count: questionsOnDay,
+        dayLabel: d.toLocaleDateString("en-US", { weekday: "short" }).charAt(0),
+        isToday: i === 0,
+      });
+    }
+    return days;
+  }, [userData.examHistory]);
+
+  const maxCount = Math.max(...last7Days.map(d => d.count), 1);
+
+  return (
+    <View
+      style={[styles.streakCalendar, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+      accessibilityRole="summary"
+      accessibilityLabel={tr("dashboard.studyStreak")}
+    >
+      <View style={styles.streakCalendarHeader}>
+        <Ionicons name="calendar" size={16} color={colors.primary} />
+        <Text style={[styles.streakCalendarTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
+          {tr("dashboard.studyStreak")}
+        </Text>
+      </View>
+      <View style={styles.streakCalendarRow}>
+        {last7Days.map((day) => {
+          const intensity = day.count > 0 ? Math.max(0.2, day.count / maxCount) : 0;
+          const bgColor = day.count > 0
+            ? `rgba(37, 99, 235, ${intensity})`
+            : colors.borderLight;
+          return (
+            <View
+              key={day.dateStr}
+              style={styles.streakDayCol}
+              accessibilityLabel={`${day.dayLabel}: ${day.count} questions`}
+            >
+              <View style={[
+                styles.streakDayCell,
+                {
+                  backgroundColor: bgColor,
+                  borderWidth: day.isToday ? 2 : 0,
+                  borderColor: day.isToday ? colors.primary : "transparent",
+                },
+              ]}>
+                {day.count > 0 && (
+                  <Text style={[styles.streakDayCount, { color: intensity > 0.5 ? "#FFFFFF" : colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                    {day.count}
+                  </Text>
+                )}
+              </View>
+              <Text style={[styles.streakDayLabel, { color: day.isToday ? colors.primary : colors.textTertiary, fontFamily: day.isToday ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
+                {day.dayLabel}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function QuickActionButton({ icon, label, color, bgColor, onPress, accessibilityHint }: { icon: string; label: string; color: string; bgColor: string; onPress: () => void; accessibilityHint: string }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
-  const pct = progress ? Math.round((progress.correct / Math.max(progress.total, 1)) * 100) : 0;
-  const total = progress?.total || 0;
-  const subjectName = language === "bn" ? subject.nameBn : subject.name;
-
   return (
-    <Animated.View entering={FadeInDown.delay(500 + idx * 50).duration(300)}>
-      <Pressable
-        onPressIn={() => { scale.value = withSpring(0.97, { damping: 15 }); }}
-        onPressOut={() => { scale.value = withSpring(1, { damping: 12 }); }}
-        onPress={() => {
-          if (Platform.OS !== "web") {
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {}
-          }
-          onPress();
-        }}
-      >
-        <Animated.View style={[animStyle, styles.subjectCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-          <View style={[styles.subjectIcon, { backgroundColor: subject.color + "15" }]}>
-            <Ionicons name={subject.icon as any} size={20} color={subject.color} />
-          </View>
-          <View style={styles.subjectInfo}>
-            <Text style={[styles.subjectName, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-              {subjectName}
-            </Text>
-            <View style={styles.subjectProgressRow}>
-              {total > 0 ? (
-                <>
-                  <View style={[styles.subjectProgressBar, { backgroundColor: colors.borderLight }]}>
-                    <View style={[styles.subjectProgressFill, { width: `${Math.min(pct, 100)}%`, backgroundColor: subject.color }]} />
-                  </View>
-                  <Text style={[styles.subjectPct, { color: colors.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
-                    {pct}%
-                  </Text>
-                </>
-              ) : (
-                <Text style={[styles.subjectStats, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-                  Tap to start
-                </Text>
-              )}
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
-        </Animated.View>
-      </Pressable>
-    </Animated.View>
+    <Pressable
+      onPress={() => {
+        if (Platform.OS !== "web") {
+          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {}
+        }
+        onPress();
+      }}
+      onPressIn={() => { scale.value = withSpring(0.93, { damping: 15 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { damping: 12 }); }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
+      style={{ flex: 1, minHeight: 44 }}
+    >
+      <Animated.View style={[animStyle, styles.quickActionBtn, { backgroundColor: bgColor }]}>
+        <View style={[styles.quickActionIcon, { backgroundColor: color + "20" }]}>
+          <Ionicons name={icon as any} size={18} color={color} />
+        </View>
+        <Text style={[styles.quickActionLabel, { color, fontFamily: "Inter_600SemiBold" }]} numberOfLines={1}>
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -251,6 +294,7 @@ export default function DashboardScreen() {
       ? Math.round((userData.totalCorrect / userData.totalQuestionsSolved) * 100)
       : 0;
   const weakTopics = getWeakTopics(userData, userData.examType, 3);
+  const levelInfo = getUserLevel(userData.xp);
 
   const todayExams = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
@@ -262,6 +306,12 @@ export default function DashboardScreen() {
   }, [todayExams]);
 
   const dailyProgress = Math.min(questionsToday / DAILY_GOAL, 1);
+  const estimatedTimeRemaining = Math.max(0, (DAILY_GOAL - questionsToday) * 1.5);
+
+  const smartMixCount = useMemo(() => {
+    const pool = getQuestionsForExamType(userData.examType, language);
+    return Math.min(15, pool.length);
+  }, [userData.examType, language]);
 
   const lastIncompleteSubject = useMemo(() => {
     if (userData.examHistory.length === 0) return null;
@@ -284,16 +334,76 @@ export default function DashboardScreen() {
     router.push("/exam");
   };
 
-  const handleAdaptivePractice = () => {
+  const handleSmartDailyMix = () => {
     if (Platform.OS !== "web") {
       try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (e) {}
     }
-    const questions = getAdaptiveQuestions(userData, userData.examType, 10, language);
+    const questions = getSmartDailyMix(userData, userData.examType, 15, language);
     if (questions.length === 0) return;
     startExam({
-      subject: tr("dashboard.adaptivePractice"),
+      subject: tr("dashboard.smartDailyMix"),
       count: questions.length,
       timePerQuestion: 60,
+      questions,
+    });
+    router.push("/exam");
+  };
+
+  const handleSpeedRound = () => {
+    if (Platform.OS !== "web") {
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (e) {}
+    }
+    const questions = shuffleArray(getQuestionsForExamType(userData.examType, language)).slice(0, 10);
+    if (questions.length === 0) return;
+    startExam({
+      subject: tr("dashboard.speedRound"),
+      count: questions.length,
+      timePerQuestion: 30,
+      questions,
+      practiceMode: "speed",
+    });
+    router.push("/exam");
+  };
+
+  const handleWeakTopicsDrill = () => {
+    if (Platform.OS !== "web") {
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (e) {}
+    }
+    if (weakTopics.length > 0) {
+      const wt = weakTopics[0];
+      const questions = shuffleArray(getQuestionsForSubject(wt.subject, wt.topic)).slice(0, 10);
+      if (questions.length === 0) return;
+      startExam({
+        subject: wt.subject,
+        topic: wt.topic,
+        count: questions.length,
+        timePerQuestion: 60,
+        questions,
+      });
+    } else {
+      const questions = getAdaptiveQuestions(userData, userData.examType, 10, language);
+      if (questions.length === 0) return;
+      startExam({
+        subject: tr("dashboard.weakTopicsDrill"),
+        count: questions.length,
+        timePerQuestion: 60,
+        questions,
+      });
+    }
+    router.push("/exam");
+  };
+
+  const handleRandomChallenge = () => {
+    if (Platform.OS !== "web") {
+      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch (e) {}
+    }
+    const allQuestions = getQuestionsForExamType(userData.examType, language);
+    const questions = shuffleArray(allQuestions).slice(0, 10);
+    if (questions.length === 0) return;
+    startExam({
+      subject: tr("dashboard.randomChallenge"),
+      count: questions.length,
+      timePerQuestion: 45,
       questions,
     });
     router.push("/exam");
@@ -328,21 +438,7 @@ export default function DashboardScreen() {
     router.push("/exam");
   };
 
-  const handleTodayChallenge = () => {
-    if (Platform.OS !== "web") {
-      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch (e) {}
-    }
-    const questions = getAdaptiveQuestions(userData, userData.examType, 15, language);
-    if (questions.length === 0) return;
-    startExam({
-      subject: tr("dashboard.todaysChallenge"),
-      count: questions.length,
-      timePerQuestion: 45,
-      questions,
-    });
-    router.push("/exam");
-  };
-
+  const [refreshing, setRefreshing] = useState(false);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<"alltime" | "weekly">("alltime");
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
@@ -350,7 +446,7 @@ export default function DashboardScreen() {
   const fetchLeaderboard = useCallback(async (period: "alltime" | "weekly") => {
     setLeaderboardLoading(true);
     try {
-      const res = await apiRequest("GET", `/api/leaderboard?period=${period}&limit=10`);
+      const res = await apiRequest("GET", `/api/leaderboard?period=${period}&limit=5`);
       const data = await res.json();
       setLeaderboardData(data);
     } catch (e) {
@@ -375,6 +471,17 @@ export default function DashboardScreen() {
         contentContainerStyle={{ paddingBottom: 100 }}
         contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchLeaderboard(leaderboardPeriod).finally(() => setRefreshing(false));
+            }}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       >
         <LinearGradient
           colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
@@ -403,20 +510,45 @@ export default function DashboardScreen() {
 
           <Animated.View entering={FadeInDown.delay(50).duration(500)} style={styles.heroHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.heroGreeting, { fontFamily: "Inter_400Regular" }]}>
+              <Text
+                style={[styles.heroGreeting, { fontFamily: "Inter_400Regular" }]}
+                accessibilityRole="text"
+              >
                 {timeGreeting}{greeting ? `, ${greeting}` : ""}
               </Text>
-              <Text style={[styles.heroTitle, { fontFamily: "Inter_700Bold" }]}>
+              <Text
+                style={[styles.heroTitle, { fontFamily: "Inter_700Bold" }]}
+                accessibilityRole="header"
+              >
                 {examName} {tr("dashboard.prep")}
               </Text>
             </View>
             <View style={styles.streakContainer}>
               <View style={styles.streakInner}>
                 <StreakFlame streak={userData.streak} colors={colors} />
-                <Text style={[styles.heroStreakText, { fontFamily: "Inter_700Bold" }]}>
+                <Text style={[styles.heroStreakText, { fontFamily: "Inter_700Bold" }]}
+                  accessibilityLabel={`${userData.streak} ${tr("profile.dayStreak")}`}
+                >
                   {userData.streak}
                 </Text>
               </View>
+            </View>
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.xpBarSection}>
+            <View style={styles.xpBarHeader}>
+              <View style={styles.levelBadge}>
+                <Ionicons name="shield" size={14} color="#FCD34D" />
+                <Text style={[styles.levelText, { fontFamily: "Inter_700Bold" }]}>
+                  Lv.{levelInfo.level}
+                </Text>
+              </View>
+              <Text style={[styles.xpBarLabel, { fontFamily: "Inter_400Regular" }]}>
+                {levelInfo.xpInLevel}/{levelInfo.xpForNext} XP
+              </Text>
+            </View>
+            <View style={styles.xpBarBg}>
+              <View style={[styles.xpBarFill, { width: `${Math.min(levelInfo.progress * 100, 100)}%` }]} />
             </View>
           </Animated.View>
 
@@ -446,33 +578,122 @@ export default function DashboardScreen() {
               delay={250}
             />
           </View>
-
-          <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.dailyGoalRow}>
-            <View style={styles.dailyGoalInfo}>
-              <Text style={[styles.dailyGoalLabel, { fontFamily: "Inter_500Medium" }]}>
-                {tr("dashboard.dailyGoal")}
-              </Text>
-              <Text style={[styles.dailyGoalProgress, { fontFamily: "Inter_400Regular" }]}>
-                {questionsToday}/{DAILY_GOAL} {tr("dashboard.questionsToday")}
-              </Text>
-            </View>
-            <View style={styles.dailyGoalBarContainer}>
-              <View style={styles.dailyGoalBarBg}>
-                <View style={[styles.dailyGoalBarFill, { width: `${Math.min(dailyProgress * 100, 100)}%` }]} />
-              </View>
-            </View>
-            {dailyProgress >= 1 && (
-              <Text style={[styles.dailyGoalComplete, { fontFamily: "Inter_700Bold" }]}>
-                {tr("dashboard.completed")}
-              </Text>
-            )}
-          </Animated.View>
         </LinearGradient>
 
         <View style={styles.contentContainer}>
+          <Animated.View entering={FadeInDown.delay(280).duration(400)}>
+            <View
+              style={[styles.dailyGoalCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+              accessibilityRole="summary"
+              accessibilityLabel={`${tr("dashboard.dailyGoal")}: ${questionsToday} of ${DAILY_GOAL} questions completed`}
+            >
+              <ProgressRing
+                progress={dailyProgress}
+                size={72}
+                strokeWidth={6}
+                color={dailyProgress >= 1 ? colors.success : colors.primary}
+                bgColor={colors.borderLight}
+              >
+                <Text style={[styles.dailyGoalRingText, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
+                  {questionsToday}
+                </Text>
+                <Text style={[styles.dailyGoalRingLabel, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                  /{DAILY_GOAL}
+                </Text>
+              </ProgressRing>
+              <View style={styles.dailyGoalInfo}>
+                <Text style={[styles.dailyGoalTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
+                  {tr("dashboard.dailyGoal")}
+                </Text>
+                <Text style={[styles.dailyGoalSub, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                  {questionsToday}/{DAILY_GOAL} {tr("dashboard.questionsToday")}
+                </Text>
+                {dailyProgress < 1 ? (
+                  <Text style={[styles.dailyGoalTime, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                    ~{Math.ceil(estimatedTimeRemaining)} {tr("dashboard.minRemaining")}
+                  </Text>
+                ) : (
+                  <View style={styles.dailyGoalCompletedRow}>
+                    <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                    <Text style={[styles.dailyGoalCompletedText, { color: colors.success, fontFamily: "Inter_600SemiBold" }]}>
+                      {tr("dashboard.completed")}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(320).duration(400)}>
+            <PressableCard
+              onPress={handleSmartDailyMix}
+              accessibilityLabel={tr("dashboard.smartDailyMix")}
+              accessibilityHint={tr("dashboard.smartDailyMixHint")}
+            >
+              <LinearGradient
+                colors={[colors.gradientStart, colors.gradientEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.smartMixCard}
+              >
+                <View style={styles.smartMixContent}>
+                  <View style={styles.smartMixIconWrap}>
+                    <MaterialCommunityIcons name="brain" size={24} color="#FFFFFF" />
+                  </View>
+                  <View style={styles.smartMixInfo}>
+                    <Text style={[styles.smartMixTitle, { fontFamily: "Inter_700Bold" }]}>
+                      {tr("dashboard.smartDailyMix")}
+                    </Text>
+                    <Text style={[styles.smartMixDesc, { fontFamily: "Inter_400Regular" }]}>
+                      {smartMixCount} {tr("practice.questions")} · {tr("dashboard.personalizedForYou")}
+                    </Text>
+                  </View>
+                  <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.9)" />
+                </View>
+              </LinearGradient>
+            </PressableCard>
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(360).duration(400)}>
+            <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
+              {tr("dashboard.quickActions")}
+            </Text>
+            <View style={styles.quickActionsRow}>
+              <QuickActionButton
+                icon="flash"
+                label={tr("dashboard.speedRound")}
+                color="#EF4444"
+                bgColor={colors.surface}
+                onPress={handleSpeedRound}
+                accessibilityHint={tr("dashboard.speedRoundHint")}
+              />
+              <QuickActionButton
+                icon="fitness"
+                label={tr("dashboard.weakTopicsDrill")}
+                color="#F59E0B"
+                bgColor={colors.surface}
+                onPress={handleWeakTopicsDrill}
+                accessibilityHint={tr("dashboard.weakTopicsDrillHint")}
+              />
+              <QuickActionButton
+                icon="dice"
+                label={tr("dashboard.randomChallenge")}
+                color="#8B5CF6"
+                bgColor={colors.surface}
+                onPress={handleRandomChallenge}
+                accessibilityHint={tr("dashboard.randomChallengeHint")}
+              />
+            </View>
+          </Animated.View>
+
           {lastIncompleteSubject && (
-            <Animated.View entering={FadeInDown.delay(320).duration(400)}>
-              <PressableCard onPress={handleContinuePractice} style={[styles.continueCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <Animated.View entering={FadeInDown.delay(380).duration(400)}>
+              <PressableCard
+                onPress={handleContinuePractice}
+                style={[styles.continueCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                accessibilityLabel={`${tr("dashboard.continueWhere")}: ${lastIncompleteSubject.subject}`}
+                accessibilityHint="Tap to continue practicing"
+              >
                 <View style={[styles.continueIconWrap, { backgroundColor: colors.primaryLight }]}>
                   <Ionicons name="play" size={18} color={colors.primary} />
                 </View>
@@ -489,48 +710,11 @@ export default function DashboardScreen() {
             </Animated.View>
           )}
 
-          <Animated.View entering={FadeInDown.delay(350).duration(400)}>
-            <PressableCard onPress={handleTodayChallenge}>
-              <LinearGradient
-                colors={[colors.challengeGradientStart, colors.challengeGradientEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.challengeCard}
-              >
-                <View style={styles.challengeContent}>
-                  <View style={styles.challengeIconWrap}>
-                    <MaterialCommunityIcons name="lightning-bolt" size={24} color="#FFFFFF" />
-                  </View>
-                  <View style={styles.challengeInfo}>
-                    <Text style={[styles.challengeTitle, { fontFamily: "Inter_700Bold" }]}>
-                      {tr("dashboard.todaysChallenge")}
-                    </Text>
-                    <Text style={[styles.challengeDesc, { fontFamily: "Inter_400Regular" }]}>
-                      15 {tr("practice.questions")} + 50 {tr("dashboard.bonusXP")}
-                    </Text>
-                  </View>
-                  <Ionicons name="arrow-forward-circle" size={28} color="rgba(255,255,255,0.9)" />
-                </View>
-              </LinearGradient>
-            </PressableCard>
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.delay(380).duration(400)}>
-            <PressableCard onPress={handleAdaptivePractice} style={[styles.adaptiveBtn, { backgroundColor: colors.primary }]}>
-              <Ionicons name="flash" size={20} color="#FFFFFF" />
-              <View style={styles.adaptiveBtnInfo}>
-                <Text style={[styles.adaptiveBtnTitle, { fontFamily: "Inter_600SemiBold" }]}>
-                  {tr("dashboard.adaptivePractice")}
-                </Text>
-                <Text style={[styles.adaptiveBtnDesc, { fontFamily: "Inter_400Regular" }]}>
-                  {tr("practice.adaptiveDesc")}
-                </Text>
-              </View>
-              <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-            </PressableCard>
-          </Animated.View>
-
           <Animated.View entering={FadeInDown.delay(400).duration(400)}>
+            <StudyStreakCalendar userData={userData} colors={colors} tr={tr} />
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(420).duration(400)}>
             <View style={styles.leaderboardHeader}>
               <View style={styles.leaderboardTitleRow}>
                 <Ionicons name="trophy" size={20} color={colors.warning} />
@@ -538,13 +722,19 @@ export default function DashboardScreen() {
                   {tr("leaderboard.title")}
                 </Text>
               </View>
-              <View style={[styles.periodToggle, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+              <View
+                style={[styles.periodToggle, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                accessibilityRole="radiogroup"
+              >
                 <Pressable
                   style={[
                     styles.periodBtn,
                     leaderboardPeriod === "alltime" && { backgroundColor: colors.primary },
                   ]}
                   onPress={() => setLeaderboardPeriod("alltime")}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: leaderboardPeriod === "alltime" }}
+                  accessibilityLabel={tr("leaderboard.allTime")}
                 >
                   <Text style={[
                     styles.periodBtnText,
@@ -559,6 +749,9 @@ export default function DashboardScreen() {
                     leaderboardPeriod === "weekly" && { backgroundColor: colors.primary },
                   ]}
                   onPress={() => setLeaderboardPeriod("weekly")}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: leaderboardPeriod === "weekly" }}
+                  accessibilityLabel={tr("leaderboard.weekly")}
                 >
                   <Text style={[
                     styles.periodBtnText,
@@ -571,12 +764,12 @@ export default function DashboardScreen() {
             </View>
 
             {leaderboardLoading ? (
-              <View style={styles.leaderboardLoading}>
+              <View style={styles.leaderboardLoading} accessibilityRole="progressbar" accessibilityLabel="Loading leaderboard">
                 <ActivityIndicator size="small" color={colors.primary} />
               </View>
             ) : leaderboardData && leaderboardData.entries.length > 0 ? (
               <View style={[styles.leaderboardContainer, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-                {leaderboardData.entries.slice(0, 10).map((entry, idx) => {
+                {leaderboardData.entries.slice(0, 5).map((entry, idx) => {
                   const isCurrentUser = leaderboardData.currentUserId === entry.userId;
                   const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
                   const hasMedal = idx < 3;
@@ -586,8 +779,10 @@ export default function DashboardScreen() {
                       style={[
                         styles.leaderboardRow,
                         isCurrentUser && { backgroundColor: colors.primaryLight },
-                        idx < leaderboardData.entries.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.borderLight },
+                        idx < Math.min(leaderboardData.entries.length, 5) - 1 && { borderBottomWidth: 1, borderBottomColor: colors.borderLight },
                       ]}
+                      accessibilityRole="text"
+                      accessibilityLabel={`Rank ${entry.rank}: ${entry.name}, ${entry.xp} XP${isCurrentUser ? " (You)" : ""}`}
                     >
                       <View style={styles.rankContainer}>
                         {hasMedal ? (
@@ -632,7 +827,7 @@ export default function DashboardScreen() {
                   );
                 })}
 
-                {isAuthenticated && leaderboardData.currentUserRank && leaderboardData.currentUserRank > 10 && (
+                {isAuthenticated && leaderboardData.currentUserRank && leaderboardData.currentUserRank > 5 && (
                   <View style={[styles.currentUserRankBar, { backgroundColor: colors.primaryLight, borderTopWidth: 1, borderTopColor: colors.borderLight }]}>
                     <Ionicons name="person" size={14} color={colors.primary} />
                     <Text style={[styles.currentUserRankText, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
@@ -654,6 +849,8 @@ export default function DashboardScreen() {
               <Pressable
                 style={[styles.loginPrompt, { borderColor: colors.primary + "40" }]}
                 onPress={() => router.push("/auth")}
+                accessibilityRole="button"
+                accessibilityLabel={tr("leaderboard.loginToSee")}
               >
                 <Ionicons name="log-in-outline" size={16} color={colors.primary} />
                 <Text style={[styles.loginPromptText, { color: colors.primary, fontFamily: "Inter_500Medium" }]}>
@@ -664,15 +861,17 @@ export default function DashboardScreen() {
           </Animated.View>
 
           {weakTopics.length > 0 && (
-            <Animated.View entering={FadeInDown.delay(420).duration(400)}>
+            <Animated.View entering={FadeInDown.delay(440).duration(400)}>
               <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
                 {tr("dashboard.weakTopics")}
               </Text>
               {weakTopics.map((wt, idx) => (
-                <Animated.View key={`${wt.subject}::${wt.topic}`} entering={FadeInRight.delay(450 + idx * 80).duration(300)}>
+                <Animated.View key={`${wt.subject}::${wt.topic}`} entering={FadeInRight.delay(460 + idx * 80).duration(300)}>
                   <PressableCard
                     onPress={() => handleWeakTopicPractice(wt.subject, wt.topic)}
                     style={[styles.weakCard, { backgroundColor: colors.errorLight, borderColor: colors.error + "20" }]}
+                    accessibilityLabel={`${wt.subject} - ${wt.topic}: ${Math.round(wt.accuracy * 100)}% accuracy`}
+                    accessibilityHint="Tap to practice this weak topic"
                   >
                     <View style={[styles.weakIconWrap, { backgroundColor: colors.error + "15" }]}>
                       <Ionicons name="alert-circle" size={18} color={colors.error} />
@@ -692,35 +891,6 @@ export default function DashboardScreen() {
             </Animated.View>
           )}
 
-          {isAuthenticated && authUser?.educationLevel && (
-            <Animated.View entering={FadeInDown.delay(480).duration(400)}>
-              <View style={[styles.recommendCard, {
-                backgroundColor: colors.primaryLight,
-                borderColor: colors.primary + "20",
-              }]}>
-                <View style={styles.recommendHeader}>
-                  <View style={[styles.recommendIconWrap, { backgroundColor: colors.primary + "15" }]}>
-                    <Ionicons name="bulb" size={18} color={colors.primary} />
-                  </View>
-                  <Text style={[styles.recommendTitle, { color: colors.primary, fontFamily: "Inter_700Bold" }]}>
-                    {tr("recommendation.title")}
-                  </Text>
-                </View>
-                <Text style={[styles.recommendText, { color: colors.text, fontFamily: "Inter_400Regular" }]}>
-                  {tr(`recommendation.${authUser.educationLevel}`)}
-                </Text>
-                {weakTopics.length > 0 && (
-                  <View style={styles.recommendWeak}>
-                    <Ionicons name="alert-circle" size={14} color={colors.warning} />
-                    <Text style={[styles.recommendWeakText, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                      {tr("recommendation.weakArea")}: {weakTopics[0].subject} - {weakTopics[0].topic}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </Animated.View>
-          )}
-
           <Animated.View entering={FadeInDown.delay(500).duration(400)}>
             <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
               {tr("dashboard.quickPractice")}
@@ -729,16 +899,44 @@ export default function DashboardScreen() {
 
           {subjects.map((subject, idx) => {
             const progress = userData.subjectProgress[subject.name];
+            const pct = progress ? Math.round((progress.correct / Math.max(progress.total, 1)) * 100) : 0;
+            const total = progress?.total || 0;
+            const subjectName = language === "bn" ? subject.nameBn : subject.name;
             return (
-              <SubjectCardItem
-                key={subject.id}
-                subject={subject}
-                progress={progress}
-                language={language}
-                colors={colors}
-                onPress={() => handleQuickPractice(subject.name)}
-                idx={idx}
-              />
+              <Animated.View key={subject.id} entering={FadeInDown.delay(520 + idx * 50).duration(300)}>
+                <PressableCard
+                  onPress={() => handleQuickPractice(subject.name)}
+                  style={[styles.subjectCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                  accessibilityLabel={`${subjectName}: ${total > 0 ? `${pct}% accuracy` : "Not started"}`}
+                  accessibilityHint="Tap to practice this subject"
+                >
+                  <View style={[styles.subjectIcon, { backgroundColor: subject.color + "15" }]}>
+                    <Ionicons name={subject.icon as any} size={20} color={subject.color} />
+                  </View>
+                  <View style={styles.subjectInfo}>
+                    <Text style={[styles.subjectName, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                      {subjectName}
+                    </Text>
+                    <View style={styles.subjectProgressRow}>
+                      {total > 0 ? (
+                        <>
+                          <View style={[styles.subjectProgressBar, { backgroundColor: colors.borderLight }]}>
+                            <View style={[styles.subjectProgressFill, { width: `${Math.min(pct, 100)}%`, backgroundColor: subject.color }]} />
+                          </View>
+                          <Text style={[styles.subjectPct, { color: colors.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
+                            {pct}%
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={[styles.subjectStats, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                          {tr("dashboard.tapToStart")}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                </PressableCard>
+              </Animated.View>
             );
           })}
 
@@ -748,33 +946,36 @@ export default function DashboardScreen() {
                 {tr("dashboard.recentActivity")}
               </Text>
               {userData.examHistory.slice(0, 5).map((exam) => (
-                <View
-                  key={exam.id}
-                  style={[styles.historyCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
-                >
-                  <View style={[styles.scoreBadge, { backgroundColor: exam.score >= 70 ? colors.successLight : colors.errorLight }]}>
-                    <Text
-                      style={[
-                        styles.scoreText,
-                        { color: exam.score >= 70 ? colors.success : colors.error, fontFamily: "Inter_700Bold" },
-                      ]}
-                    >
-                      {exam.score}%
+                <Animated.View key={exam.id} entering={FadeInRight.delay(100).duration(300)}>
+                  <View
+                    style={[styles.historyCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                    accessibilityRole="text"
+                    accessibilityLabel={`${exam.subject}: ${exam.score}% score, ${exam.correctAnswers} of ${exam.totalQuestions} correct`}
+                  >
+                    <View style={[styles.scoreBadge, { backgroundColor: exam.score >= 70 ? colors.successLight : colors.errorLight }]}>
+                      <Text
+                        style={[
+                          styles.scoreText,
+                          { color: exam.score >= 70 ? colors.success : colors.error, fontFamily: "Inter_700Bold" },
+                        ]}
+                      >
+                        {exam.score}%
+                      </Text>
+                    </View>
+                    <View style={styles.historyInfo}>
+                      <Text style={[styles.historySubject, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                        {exam.subject}
+                      </Text>
+                      <Text style={[styles.historyMeta, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                        {exam.correctAnswers}/{exam.totalQuestions} {tr("dashboard.correct")}
+                        {exam.topic ? ` - ${exam.topic}` : ""}
+                      </Text>
+                    </View>
+                    <Text style={[styles.historyDate, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                      {new Date(exam.date).toLocaleDateString(language === "bn" ? "bn-BD" : "en-US", { month: "short", day: "numeric" })}
                     </Text>
                   </View>
-                  <View style={styles.historyInfo}>
-                    <Text style={[styles.historySubject, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-                      {exam.subject}
-                    </Text>
-                    <Text style={[styles.historyMeta, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                      {exam.correctAnswers}/{exam.totalQuestions} {tr("dashboard.correct")}
-                      {exam.topic ? ` - ${exam.topic}` : ""}
-                    </Text>
-                  </View>
-                  <Text style={[styles.historyDate, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-                    {new Date(exam.date).toLocaleDateString(language === "bn" ? "bn-BD" : "en-US", { month: "short", day: "numeric" })}
-                  </Text>
-                </View>
+                </Animated.View>
               ))}
             </Animated.View>
           )}
@@ -784,7 +985,10 @@ export default function DashboardScreen() {
               <View style={[styles.emptyIconWrap, { backgroundColor: colors.primaryLight }]}>
                 <Ionicons name="book-outline" size={28} color={colors.primary} />
               </View>
-              <Text style={[styles.emptyText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
+              <Text
+                style={[styles.emptyText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}
+                accessibilityRole="text"
+              >
                 {tr("dashboard.startPracticing")}
               </Text>
             </Animated.View>
@@ -800,6 +1004,9 @@ export default function DashboardScreen() {
           }
           router.push("/chatbot");
         }}
+        accessibilityRole="button"
+        accessibilityLabel={tr("chatbot.title")}
+        accessibilityHint="Open AI Study Coach"
       >
         <LinearGradient
           colors={[colors.gradientStart, colors.gradientEnd]}
@@ -832,7 +1039,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   heroGreeting: {
     fontSize: 14,
@@ -861,6 +1068,44 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: "#FFFFFF",
   },
+  xpBarSection: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  xpBarHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  levelBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  levelText: {
+    fontSize: 12,
+    color: "#FCD34D",
+  },
+  xpBarLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.7)",
+  },
+  xpBarBg: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  xpBarFill: {
+    height: 6,
+    backgroundColor: "#FCD34D",
+    borderRadius: 3,
+  },
   glassStatsRow: {
     flexDirection: "row",
     paddingHorizontal: 16,
@@ -883,57 +1128,119 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "rgba(255,255,255,0.75)",
   },
-  dailyGoalRow: {
-    marginHorizontal: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-  },
-  dailyGoalInfo: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  dailyGoalLabel: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.9)",
-  },
-  dailyGoalProgress: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.7)",
-  },
-  dailyGoalBarContainer: {
-    height: 6,
-  },
-  dailyGoalBarBg: {
-    height: 6,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  dailyGoalBarFill: {
-    height: 6,
-    backgroundColor: "#6EE7B7",
-    borderRadius: 3,
-  },
-  dailyGoalComplete: {
-    fontSize: 12,
-    color: "#6EE7B7",
-    marginTop: 4,
-    textAlign: "center",
-  },
   contentContainer: {
     paddingTop: 20,
+  },
+  dailyGoalCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 16,
+  },
+  dailyGoalRingText: {
+    fontSize: 18,
+    position: "absolute",
+    top: 20,
+  },
+  dailyGoalRingLabel: {
+    fontSize: 10,
+    position: "absolute",
+    top: 38,
+  },
+  dailyGoalInfo: {
+    flex: 1,
+  },
+  dailyGoalTitle: {
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  dailyGoalSub: {
+    fontSize: 13,
+    marginBottom: 2,
+  },
+  dailyGoalTime: {
+    fontSize: 11,
+  },
+  dailyGoalCompletedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  dailyGoalCompletedText: {
+    fontSize: 12,
+  },
+  smartMixCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  smartMixContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    gap: 12,
+  },
+  smartMixIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  smartMixInfo: { flex: 1 },
+  smartMixTitle: {
+    fontSize: 16,
+    color: "#FFFFFF",
+    marginBottom: 4,
+  },
+  smartMixDesc: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+  },
+  sectionTitle: {
+    fontSize: 18,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  quickActionsRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    gap: 10,
+    marginBottom: 20,
+  },
+  quickActionBtn: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.05)",
+  },
+  quickActionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  quickActionLabel: {
+    fontSize: 11,
+    textAlign: "center",
   },
   continueCard: {
     flexDirection: "row",
     alignItems: "center",
     marginHorizontal: 20,
-    marginBottom: 14,
+    marginBottom: 16,
     padding: 14,
     borderRadius: 14,
     borderWidth: 1,
@@ -949,52 +1256,42 @@ const styles = StyleSheet.create({
   continueInfo: { flex: 1 },
   continueLabel: { fontSize: 11, marginBottom: 2 },
   continueSubject: { fontSize: 14 },
-  challengeCard: {
+  streakCalendar: {
     marginHorizontal: 20,
-    marginBottom: 14,
+    marginBottom: 20,
+    padding: 16,
     borderRadius: 16,
-    overflow: "hidden",
+    borderWidth: 1,
   },
-  challengeContent: {
+  streakCalendarHeader: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
-    gap: 12,
+    gap: 8,
+    marginBottom: 14,
   },
-  challengeIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  streakCalendarTitle: {
+    fontSize: 15,
+  },
+  streakCalendarRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  streakDayCol: {
+    alignItems: "center",
+    gap: 6,
+  },
+  streakDayCell: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
   },
-  challengeInfo: { flex: 1 },
-  challengeTitle: {
-    fontSize: 16,
-    color: "#FFFFFF",
-    marginBottom: 2,
-  },
-  challengeDesc: {
+  streakDayCount: {
     fontSize: 12,
-    color: "rgba(255,255,255,0.8)",
   },
-  adaptiveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 20,
-    marginBottom: 24,
-    padding: 16,
-    borderRadius: 14,
-    gap: 12,
-  },
-  adaptiveBtnInfo: { flex: 1 },
-  adaptiveBtnTitle: { fontSize: 15, color: "#FFFFFF", marginBottom: 2 },
-  adaptiveBtnDesc: { fontSize: 12, color: "rgba(255,255,255,0.8)" },
-  sectionTitle: {
-    fontSize: 18,
-    paddingHorizontal: 20,
-    marginBottom: 12,
+  streakDayLabel: {
+    fontSize: 10,
   },
   weakCard: {
     flexDirection: "row",
@@ -1016,35 +1313,6 @@ const styles = StyleSheet.create({
   weakInfo: { flex: 1 },
   weakSubject: { fontSize: 14, marginBottom: 2 },
   weakTopic: { fontSize: 12 },
-  recommendCard: {
-    marginHorizontal: 20,
-    marginBottom: 24,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  recommendHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
-  recommendIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  recommendTitle: { fontSize: 15 },
-  recommendText: { fontSize: 13, lineHeight: 20, marginBottom: 8 },
-  recommendWeak: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 4,
-  },
-  recommendWeakText: { fontSize: 12 },
   subjectCard: {
     flexDirection: "row",
     alignItems: "center",

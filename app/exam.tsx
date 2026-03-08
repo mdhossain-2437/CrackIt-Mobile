@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Platform,
   Modal,
   Alert,
+  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,9 +23,9 @@ import Animated, {
   withTiming,
   withSequence,
   Easing,
-  FadeIn,
   FadeInUp,
 } from "react-native-reanimated";
+import Svg, { Circle } from "react-native-svg";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 import type { ExamAnswer, Question, Difficulty } from "@/lib/questions";
@@ -34,6 +35,62 @@ import {
   getNextAdaptiveQuestion,
   type AdaptiveState,
 } from "@/lib/algorithm";
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
+
+function CircularTimer({
+  timeLeft,
+  totalTime,
+  isWarning,
+  size = 52,
+  strokeWidth = 4,
+  colors,
+}: {
+  timeLeft: number;
+  totalTime: number;
+  isWarning: boolean;
+  size?: number;
+  strokeWidth?: number;
+  colors: any;
+}) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = totalTime > 0 ? timeLeft / totalTime : 1;
+  const strokeDashoffset = circumference * (1 - progress);
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
+  const timerColor = isWarning ? colors.error : "#FFFFFF";
+
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Svg width={size} height={size} style={{ position: "absolute" }}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="rgba(255,255,255,0.2)"
+          strokeWidth={strokeWidth}
+          fill="none"
+        />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={timerColor}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={`${circumference}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </Svg>
+      <Text style={{ color: "#FFFFFF", fontSize: 11, fontFamily: "Inter_600SemiBold" }}>
+        {minutes}:{seconds.toString().padStart(2, "0")}
+      </Text>
+    </View>
+  );
+}
 
 function AdaptiveDifficultyIndicator({ difficulty, colors, tr }: { difficulty: Difficulty; colors: any; tr: (key: string) => string }) {
   const animatedScale = useSharedValue(1);
@@ -134,6 +191,9 @@ function AnimatedOption({
         ]}
         onPress={onPress}
         disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Option ${String.fromCharCode(65 + idx)}: ${option}`}
+        accessibilityState={{ selected: isSelected }}
       >
         <View style={[styles.optionLabel, {
           backgroundColor: showResult
@@ -195,6 +255,80 @@ function StreakBurst({ count, colors }: { count: number; colors: any }) {
   );
 }
 
+function ConfidenceMeter({
+  confidence,
+  onSetConfidence,
+  colors,
+  tr,
+}: {
+  confidence: "sure" | "unsure" | null;
+  onSetConfidence: (val: "sure" | "unsure") => void;
+  colors: any;
+  tr: (key: string) => string;
+}) {
+  return (
+    <View style={styles.confidenceContainer}>
+      <Text style={[styles.confidenceLabel, { color: colors.textTertiary, fontFamily: "Inter_500Medium" }]}>
+        {tr("exam.confidence")}:
+      </Text>
+      <View style={styles.confidenceBtns}>
+        <Pressable
+          style={[
+            styles.confidenceBtn,
+            {
+              backgroundColor: confidence === "sure" ? colors.successLight : colors.surface,
+              borderColor: confidence === "sure" ? colors.success : colors.borderLight,
+              borderWidth: confidence === "sure" ? 2 : 1,
+            },
+          ]}
+          onPress={() => onSetConfidence("sure")}
+          accessibilityRole="button"
+          accessibilityLabel={tr("exam.sure")}
+          accessibilityState={{ selected: confidence === "sure" }}
+        >
+          <Ionicons
+            name="checkmark-circle-outline"
+            size={16}
+            color={confidence === "sure" ? colors.success : colors.textSecondary}
+          />
+          <Text style={[styles.confidenceBtnText, {
+            color: confidence === "sure" ? colors.success : colors.textSecondary,
+            fontFamily: confidence === "sure" ? "Inter_600SemiBold" : "Inter_400Regular",
+          }]}>
+            {tr("exam.sure")}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[
+            styles.confidenceBtn,
+            {
+              backgroundColor: confidence === "unsure" ? colors.warningLight : colors.surface,
+              borderColor: confidence === "unsure" ? colors.warning : colors.borderLight,
+              borderWidth: confidence === "unsure" ? 2 : 1,
+            },
+          ]}
+          onPress={() => onSetConfidence("unsure")}
+          accessibilityRole="button"
+          accessibilityLabel={tr("exam.unsure")}
+          accessibilityState={{ selected: confidence === "unsure" }}
+        >
+          <Ionicons
+            name="help-circle-outline"
+            size={16}
+            color={confidence === "unsure" ? colors.warning : colors.textSecondary}
+          />
+          <Text style={[styles.confidenceBtnText, {
+            color: confidence === "unsure" ? colors.warning : colors.textSecondary,
+            fontFamily: confidence === "unsure" ? "Inter_600SemiBold" : "Inter_400Regular",
+          }]}>
+            {tr("exam.unsure")}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function ExamScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -211,11 +345,14 @@ export default function ExamScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [markedForReview, setMarkedForReview] = useState<Set<string>>(new Set());
+  const [confidence, setConfidence] = useState<Record<string, "sure" | "unsure">>({});
   const [timeLeft, setTimeLeft] = useState(0);
+  const [totalTimeForExam, setTotalTimeForExam] = useState(0);
   const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
   const [questionTimes, setQuestionTimes] = useState<Record<string, number>>({});
   const [showPalette, setShowPalette] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [correctStreak, setCorrectStreak] = useState(0);
   const [showStreakBurst, setShowStreakBurst] = useState(false);
   const questionStartRef = useRef(Date.now());
@@ -229,10 +366,28 @@ export default function ExamScreen() {
     width: `${speedTimerProgress.value * 100}%` as any,
   }));
 
+  const questionSlideX = useSharedValue(0);
+  const questionOpacity = useSharedValue(1);
+
+  const questionAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: questionSlideX.value }],
+    opacity: questionOpacity.value,
+  }));
+
   const [adaptiveState, setAdaptiveState] = useState<AdaptiveState>(() => createAdaptiveState());
   const [adaptiveQuestions, setAdaptiveQuestions] = useState<Question[]>([]);
   const [adaptiveAnswerLocked, setAdaptiveAnswerLocked] = useState(false);
   const adaptiveMaxQuestions = currentExam?.count || 10;
+
+  const animateTransition = useCallback((direction: "forward" | "backward" = "forward") => {
+    const offset = direction === "forward" ? SCREEN_WIDTH * 0.3 : -SCREEN_WIDTH * 0.3;
+    questionOpacity.value = withTiming(0, { duration: 100 });
+    questionSlideX.value = withTiming(-offset * 0.5, { duration: 100 }, () => {
+      questionSlideX.value = offset;
+      questionOpacity.value = withTiming(1, { duration: 200 });
+      questionSlideX.value = withSpring(0, { damping: 20, stiffness: 200 });
+    });
+  }, []);
 
   useEffect(() => {
     if (!currentExam) {
@@ -250,9 +405,11 @@ export default function ExamScreen() {
 
     if (isRelaxed) {
       setTimeLeft(0);
+      setTotalTimeForExam(0);
     } else {
       const totalTime = (isAdaptive ? adaptiveMaxQuestions : currentExam.questions.length) * currentExam.timePerQuestion;
       setTimeLeft(totalTime);
+      setTotalTimeForExam(totalTime);
     }
     questionStartRef.current = Date.now();
 
@@ -303,6 +460,7 @@ export default function ExamScreen() {
 
   const selectedOption = answers[question.id] ?? null;
   const isMarked = markedForReview.has(question.id);
+  const currentConfidence = confidence[question.id] || null;
 
   const recordQuestionTime = () => {
     const elapsed = Math.round((Date.now() - questionStartRef.current) / 1000);
@@ -353,6 +511,11 @@ export default function ExamScreen() {
     }
   };
 
+  const handleSetConfidence = (val: "sure" | "unsure") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setConfidence((prev) => ({ ...prev, [question.id]: val }));
+  };
+
   const resetSpeedTimer = () => {
     if (isSpeedRound && currentExam) {
       setQuestionTimeLeft(currentExam.timePerQuestion);
@@ -367,7 +530,9 @@ export default function ExamScreen() {
       setAdaptiveAnswerLocked(false);
     }
     if (currentIndex < (isAdaptive ? adaptiveQuestions.length - 1 : totalQuestions - 1)) {
+      animateTransition("forward");
       setCurrentIndex(currentIndex + 1);
+
     }
   };
 
@@ -376,11 +541,13 @@ export default function ExamScreen() {
     recordQuestionTime();
     resetSpeedTimer();
     if (currentIndex > 0) {
+      animateTransition("backward");
       setCurrentIndex(currentIndex - 1);
+
     }
   };
 
-  const handleSkip = () => {
+  const doSkip = () => {
     recordQuestionTime();
     resetSpeedTimer();
     setCorrectStreak(0);
@@ -405,15 +572,33 @@ export default function ExamScreen() {
       }
       setAdaptiveAnswerLocked(false);
       if (currentIndex < adaptiveQuestions.length - 1) {
+        animateTransition("forward");
         setCurrentIndex(currentIndex + 1);
+  
       } else if (adaptiveQuestions.length < adaptiveMaxQuestions) {
+        animateTransition("forward");
         setCurrentIndex(currentIndex + 1);
+  
       }
     } else {
       if (currentIndex < totalQuestions - 1) {
+        animateTransition("forward");
         setCurrentIndex(currentIndex + 1);
+  
       }
     }
+  };
+
+  const handleSkip = () => {
+    if (selectedOption !== null && selectedOption !== undefined) {
+      doSkip();
+      return;
+    }
+    if (isAdaptive) {
+      doSkip();
+      return;
+    }
+    setShowSkipConfirm(true);
   };
 
   const handleToggleReview = () => {
@@ -430,6 +615,8 @@ export default function ExamScreen() {
   const handleGoToQuestion = (idx: number) => {
     if (isAdaptive) return;
     recordQuestionTime();
+    const direction = idx > currentIndex ? "forward" : "backward";
+    animateTransition(direction);
     setCurrentIndex(idx);
     setShowPalette(false);
   };
@@ -460,7 +647,7 @@ export default function ExamScreen() {
   autoNextRef.current = () => {
     if (isSpeedRound) {
       if (currentIndex < totalQuestions - 1) {
-        handleSkip();
+        doSkip();
       } else {
         handleSubmit();
       }
@@ -523,7 +710,7 @@ export default function ExamScreen() {
     : practiceMode === "marathon" ? ["#9C27B0", "#6A1B9A"]
     : [colors.primary, colors.primary + "DD"];
 
-  const renderTimerBadge = () => {
+  const renderTimerSection = () => {
     if (isRelaxed) {
       return (
         <View style={[styles.timerBadge, { backgroundColor: "rgba(255,255,255,0.2)" }]}>
@@ -545,12 +732,12 @@ export default function ExamScreen() {
       );
     }
     return (
-      <View style={[styles.timerBadge, { backgroundColor: isTimeWarning ? "rgba(255,50,50,0.3)" : "rgba(255,255,255,0.2)" }]}>
-        <Ionicons name="time-outline" size={14} color="#FFFFFF" />
-        <Text style={[styles.timerText, { color: "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}>
-          {minutes}:{seconds.toString().padStart(2, "0")}
-        </Text>
-      </View>
+      <CircularTimer
+        timeLeft={timeLeft}
+        totalTime={totalTimeForExam}
+        isWarning={isTimeWarning}
+        colors={colors}
+      />
     );
   };
 
@@ -564,7 +751,12 @@ export default function ExamScreen() {
         end={{ x: 1, y: 1 }}
         style={[styles.header, { paddingTop: topInset + 8 }]}
       >
-        <Pressable onPress={handleExit} style={styles.headerBtn}>
+        <Pressable
+          onPress={handleExit}
+          style={styles.headerBtn}
+          accessibilityRole="button"
+          accessibilityLabel={tr("exam.exit")}
+        >
           <Ionicons name="close" size={24} color="#FFFFFF" />
         </Pressable>
 
@@ -572,25 +764,40 @@ export default function ExamScreen() {
           <Text style={[styles.headerTitle, { color: "rgba(255,255,255,0.8)", fontFamily: "Inter_500Medium" }]}>
             {currentIndex + 1} / {totalQuestions}
           </Text>
-          {isAdaptive ? (
+          {isAdaptive && (
             <AdaptiveDifficultyIndicator difficulty={adaptiveState.currentDifficulty} colors={colors} tr={tr} />
-          ) : (
-            renderTimerBadge()
           )}
         </View>
 
-        {isAdaptive ? (
-          <View style={[styles.timerBadge, { backgroundColor: isTimeWarning ? "rgba(255,50,50,0.3)" : "rgba(255,255,255,0.2)" }]}>
-            <Ionicons name="time-outline" size={14} color="#FFFFFF" />
-            <Text style={[styles.timerText, { color: "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}>
-              {minutes}:{seconds.toString().padStart(2, "0")}
-            </Text>
-          </View>
-        ) : (
-          <Pressable onPress={() => setShowPalette(true)} style={styles.headerBtn}>
-            <Ionicons name="grid-outline" size={22} color="#FFFFFF" />
-          </Pressable>
-        )}
+        <View style={styles.headerRight}>
+          {isAdaptive ? (
+            renderTimerSection()
+          ) : (
+            <>
+              {renderTimerSection()}
+              {!isRelaxed && !isSpeedRound && (
+                <Pressable
+                  onPress={() => setShowPalette(true)}
+                  style={styles.headerBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr("exam.palette")}
+                >
+                  <Ionicons name="grid-outline" size={22} color="#FFFFFF" />
+                </Pressable>
+              )}
+              {(isRelaxed || isSpeedRound) && (
+                <Pressable
+                  onPress={() => setShowPalette(true)}
+                  style={styles.headerBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr("exam.palette")}
+                >
+                  <Ionicons name="grid-outline" size={22} color="#FFFFFF" />
+                </Pressable>
+              )}
+            </>
+          )}
+        </View>
       </LinearGradient>
 
       {isSpeedRound && (
@@ -616,83 +823,103 @@ export default function ExamScreen() {
         <StreakBurst count={correctStreak} colors={colors} />
       )}
 
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.questionMeta}>
-          <View style={[styles.difficultyBadge, {
-            backgroundColor: question.difficulty === "easy" ? colors.successLight : question.difficulty === "medium" ? colors.warningLight : colors.errorLight,
-          }]}>
-            <Text style={[styles.difficultyText, {
-              color: question.difficulty === "easy" ? colors.success : question.difficulty === "medium" ? colors.warning : colors.error,
-              fontFamily: "Inter_600SemiBold",
+      <Animated.View style={[{ flex: 1 }, questionAnimStyle]}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 140 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.questionMeta}>
+            <View style={[styles.difficultyBadge, {
+              backgroundColor: question.difficulty === "easy" ? colors.successLight : question.difficulty === "medium" ? colors.warningLight : colors.errorLight,
             }]}>
-              {difficultyLabel}
-            </Text>
-          </View>
-          <View style={styles.metaRight}>
-            {correctStreak >= 2 && (
-              <View style={[styles.streakMini, { backgroundColor: colors.warningLight }]}>
-                <Ionicons name="flame" size={14} color={colors.streak} />
-                <Text style={[styles.streakMiniText, { color: colors.streak, fontFamily: "Inter_600SemiBold" }]}>
-                  {correctStreak}
-                </Text>
-              </View>
-            )}
-            {!isAdaptive && (
-              <Pressable onPress={handleToggleReview} style={styles.reviewBtn}>
-                <Ionicons
-                  name={isMarked ? "bookmark" : "bookmark-outline"}
-                  size={20}
-                  color={isMarked ? colors.warning : colors.textSecondary}
-                />
-              </Pressable>
-            )}
-          </View>
-        </View>
-
-        <Text style={[styles.questionText, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-          {question.question}
-        </Text>
-
-        <View style={styles.options}>
-          {question.options.map((option, idx) => {
-            const isSelected = selectedOption === idx;
-            const showResult = isAdaptive && adaptiveAnswerLocked;
-            const isCorrectOption = idx === question.correctAnswer;
-
-            return (
-              <AnimatedOption
-                key={`${question.id}-${idx}`}
-                option={option}
-                idx={idx}
-                isSelected={isSelected}
-                showResult={showResult}
-                isCorrectOption={isCorrectOption}
-                colors={colors}
-                onPress={() => handleSelectOption(idx)}
-                disabled={isAdaptive && adaptiveAnswerLocked}
-              />
-            );
-          })}
-        </View>
-
-        {isAdaptive && adaptiveAnswerLocked && (
-          <Animated.View entering={FadeInUp.duration(300)} style={[styles.adaptiveExplanation, { backgroundColor: colors.primaryLight, borderColor: colors.primary + "20" }]}>
-            <View style={styles.explanationHeader}>
-              <Ionicons name="bulb-outline" size={16} color={colors.primary} />
-              <Text style={[styles.explanationTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
-                {tr("result.explanation")}
+              <Text style={[styles.difficultyText, {
+                color: question.difficulty === "easy" ? colors.success : question.difficulty === "medium" ? colors.warning : colors.error,
+                fontFamily: "Inter_600SemiBold",
+              }]}>
+                {difficultyLabel}
               </Text>
             </View>
-            <Text style={[styles.explanationText, { color: colors.text, fontFamily: "Inter_400Regular" }]}>
-              {question.explanation}
-            </Text>
-          </Animated.View>
-        )}
-      </ScrollView>
+            <View style={styles.metaRight}>
+              {correctStreak >= 2 && (
+                <View style={[styles.streakMini, { backgroundColor: colors.warningLight }]}>
+                  <Ionicons name="flame" size={14} color={colors.streak} />
+                  <Text style={[styles.streakMiniText, { color: colors.streak, fontFamily: "Inter_600SemiBold" }]}>
+                    {correctStreak}
+                  </Text>
+                </View>
+              )}
+              {!isAdaptive && (
+                <Pressable
+                  onPress={handleToggleReview}
+                  style={styles.reviewBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr("exam.review")}
+                  accessibilityState={{ selected: isMarked }}
+                >
+                  <Ionicons
+                    name={isMarked ? "bookmark" : "bookmark-outline"}
+                    size={20}
+                    color={isMarked ? colors.warning : colors.textSecondary}
+                  />
+                </Pressable>
+              )}
+            </View>
+          </View>
+
+          <Text
+            style={[styles.questionText, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}
+            accessibilityRole="text"
+          >
+            {question.question}
+          </Text>
+
+          <View style={styles.options}>
+            {question.options.map((option, idx) => {
+              const isSelected = selectedOption === idx;
+              const showResult = isAdaptive && adaptiveAnswerLocked;
+              const isCorrectOption = idx === question.correctAnswer;
+
+              return (
+                <AnimatedOption
+                  key={`${question.id}-${idx}`}
+                  option={option}
+                  idx={idx}
+                  isSelected={isSelected}
+                  showResult={showResult}
+                  isCorrectOption={isCorrectOption}
+                  colors={colors}
+                  onPress={() => handleSelectOption(idx)}
+                  disabled={isAdaptive && adaptiveAnswerLocked}
+                />
+              );
+            })}
+          </View>
+
+          {selectedOption !== null && !isAdaptive && (
+            <ConfidenceMeter
+              confidence={currentConfidence}
+              onSetConfidence={handleSetConfidence}
+              colors={colors}
+              tr={tr}
+            />
+          )}
+
+          {isAdaptive && adaptiveAnswerLocked && (
+            <Animated.View entering={FadeInUp.duration(300)} style={[styles.adaptiveExplanation, { backgroundColor: colors.primaryLight, borderColor: colors.primary + "20" }]}>
+              <View style={styles.explanationHeader}>
+                <Ionicons name="bulb-outline" size={16} color={colors.primary} />
+                <Text style={[styles.explanationTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+                  {tr("result.explanation")}
+                </Text>
+              </View>
+              <Text style={[styles.explanationText, { color: colors.text, fontFamily: "Inter_400Regular" }]}>
+                {question.explanation}
+              </Text>
+            </Animated.View>
+          )}
+        </ScrollView>
+      </Animated.View>
 
       <View style={[styles.footer, { paddingBottom: bottomInset + 12, backgroundColor: colors.background, borderTopColor: colors.borderLight }]}>
         {isAdaptive ? (
@@ -707,7 +934,10 @@ export default function ExamScreen() {
               style={[styles.skipBtn, { borderColor: colors.borderLight, opacity: adaptiveAnswerLocked ? 0.3 : 1 }]}
               onPress={handleSkip}
               disabled={adaptiveAnswerLocked}
+              accessibilityRole="button"
+              accessibilityLabel={tr("exam.skip")}
             >
+              <Ionicons name="play-skip-forward-outline" size={16} color={colors.textSecondary} />
               <Text style={[styles.skipBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>{tr("exam.skip")}</Text>
             </Pressable>
 
@@ -715,6 +945,8 @@ export default function ExamScreen() {
               <Pressable
                 style={[styles.submitBtn, { backgroundColor: colors.success }]}
                 onPress={handleConfirmSubmit}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.submit")}
               >
                 <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>{tr("exam.submit")}</Text>
                 <Ionicons name="checkmark" size={18} color="#FFFFFF" />
@@ -724,6 +956,8 @@ export default function ExamScreen() {
                 style={[styles.navBtn, { opacity: canGoNext ? 1 : 0.3 }]}
                 onPress={handleNext}
                 disabled={!canGoNext}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.next")}
               >
                 <Text style={[styles.navBtnText, { color: modeColor, fontFamily: "Inter_500Medium" }]}>{tr("exam.next")}</Text>
                 <Ionicons name="chevron-forward" size={20} color={modeColor} />
@@ -736,6 +970,8 @@ export default function ExamScreen() {
               style={[styles.navBtn, { opacity: currentIndex === 0 ? 0.3 : 1 }]}
               onPress={handlePrevious}
               disabled={currentIndex === 0}
+              accessibilityRole="button"
+              accessibilityLabel={tr("exam.prev")}
             >
               <Ionicons name="chevron-back" size={20} color={modeColor} />
               <Text style={[styles.navBtnText, { color: modeColor, fontFamily: "Inter_500Medium" }]}>{tr("exam.prev")}</Text>
@@ -744,7 +980,10 @@ export default function ExamScreen() {
             <Pressable
               style={[styles.skipBtn, { borderColor: colors.borderLight }]}
               onPress={handleSkip}
+              accessibilityRole="button"
+              accessibilityLabel={tr("exam.skip")}
             >
+              <Ionicons name="play-skip-forward-outline" size={16} color={colors.textSecondary} />
               <Text style={[styles.skipBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>{tr("exam.skip")}</Text>
             </Pressable>
 
@@ -752,12 +991,19 @@ export default function ExamScreen() {
               <Pressable
                 style={[styles.submitBtn, { backgroundColor: colors.success }]}
                 onPress={handleConfirmSubmit}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.submit")}
               >
                 <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>{tr("exam.submit")}</Text>
                 <Ionicons name="checkmark" size={18} color="#FFFFFF" />
               </Pressable>
             ) : (
-              <Pressable style={styles.navBtn} onPress={handleNext}>
+              <Pressable
+                style={styles.navBtn}
+                onPress={handleNext}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.next")}
+              >
                 <Text style={[styles.navBtnText, { color: modeColor, fontFamily: "Inter_500Medium" }]}>{tr("exam.next")}</Text>
                 <Ionicons name="chevron-forward" size={20} color={modeColor} />
               </Pressable>
@@ -774,7 +1020,7 @@ export default function ExamScreen() {
                 <Text style={[styles.paletteTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
                   {tr("exam.palette")}
                 </Text>
-                <Pressable onPress={() => setShowPalette(false)}>
+                <Pressable onPress={() => setShowPalette(false)} accessibilityRole="button" accessibilityLabel={tr("exam.cancel")}>
                   <Ionicons name="close" size={24} color={colors.text} />
                 </Pressable>
               </View>
@@ -794,40 +1040,46 @@ export default function ExamScreen() {
                 </View>
               </View>
 
-              <View style={styles.paletteGrid}>
-                {currentExam.questions.map((q, idx) => {
-                  const isAnswered = answers[q.id] !== undefined && answers[q.id] !== null;
-                  const isReview = markedForReview.has(q.id);
-                  const isCurrent = idx === currentIndex;
-                  let bgColor = colors.surface;
-                  if (isAnswered) bgColor = colors.successLight;
-                  if (isReview) bgColor = colors.warningLight;
-                  if (isCurrent) bgColor = colors.primaryLight;
+              <ScrollView style={{ maxHeight: 300 }}>
+                <View style={styles.paletteGrid}>
+                  {currentExam.questions.map((q, idx) => {
+                    const isAnswered = answers[q.id] !== undefined && answers[q.id] !== null;
+                    const isReview = markedForReview.has(q.id);
+                    const isCurrent = idx === currentIndex;
+                    let bgColor = colors.surface;
+                    if (isAnswered) bgColor = colors.successLight;
+                    if (isReview) bgColor = colors.warningLight;
+                    if (isCurrent) bgColor = colors.primaryLight;
 
-                  return (
-                    <Pressable
-                      key={q.id}
-                      style={[styles.paletteItem, {
-                        backgroundColor: bgColor,
-                        borderColor: isCurrent ? modeColor : colors.borderLight,
-                        borderWidth: isCurrent ? 2 : 1,
-                      }]}
-                      onPress={() => handleGoToQuestion(idx)}
-                    >
-                      <Text style={[styles.paletteItemText, {
-                        color: isCurrent ? modeColor : colors.text,
-                        fontFamily: "Inter_600SemiBold",
-                      }]}>
-                        {idx + 1}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+                    return (
+                      <Pressable
+                        key={q.id}
+                        style={[styles.paletteItem, {
+                          backgroundColor: bgColor,
+                          borderColor: isCurrent ? modeColor : colors.borderLight,
+                          borderWidth: isCurrent ? 2 : 1,
+                        }]}
+                        onPress={() => handleGoToQuestion(idx)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${tr("practice.question")} ${idx + 1}`}
+                      >
+                        <Text style={[styles.paletteItemText, {
+                          color: isCurrent ? modeColor : colors.text,
+                          fontFamily: "Inter_600SemiBold",
+                        }]}>
+                          {idx + 1}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </ScrollView>
 
               <Pressable
                 style={styles.paletteSubmitWrap}
                 onPress={() => { setShowPalette(false); handleConfirmSubmit(); }}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.submit")}
               >
                 <LinearGradient
                   colors={[colors.success, "#2E7D32"]}
@@ -845,6 +1097,45 @@ export default function ExamScreen() {
         </Modal>
       )}
 
+      <Modal visible={showSkipConfirm} animationType="fade" transparent>
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmCard, { backgroundColor: colors.background }]}>
+            <View style={[styles.confirmIconWrap, { backgroundColor: colors.warningLight }]}>
+              <Ionicons name="play-skip-forward" size={32} color={colors.warning} />
+            </View>
+            <Text style={[styles.confirmTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
+              {tr("exam.skipConfirm")}
+            </Text>
+            <Text style={[styles.confirmMsg, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {tr("exam.skipConfirmMsg")}
+            </Text>
+            <View style={styles.confirmBtns}>
+              <Pressable
+                style={[styles.confirmBtn, { borderColor: colors.borderLight }]}
+                onPress={() => setShowSkipConfirm(false)}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.goBack")}
+              >
+                <Text style={[styles.confirmBtnText, { color: colors.text, fontFamily: "Inter_500Medium" }]}>{tr("exam.goBack")}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.confirmBtnSubmit]}
+                onPress={() => { setShowSkipConfirm(false); doSkip(); }}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.skipYes")}
+              >
+                <LinearGradient
+                  colors={[colors.warning, "#E65100"]}
+                  style={styles.confirmBtnGradient}
+                >
+                  <Text style={[styles.confirmBtnText, { color: "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}>{tr("exam.skipYes")}</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={showConfirm} animationType="fade" transparent>
         <View style={styles.confirmOverlay}>
           <View style={[styles.confirmCard, { backgroundColor: colors.background }]}>
@@ -861,12 +1152,16 @@ export default function ExamScreen() {
               <Pressable
                 style={[styles.confirmBtn, { borderColor: colors.borderLight }]}
                 onPress={() => setShowConfirm(false)}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.goBack")}
               >
                 <Text style={[styles.confirmBtnText, { color: colors.text, fontFamily: "Inter_500Medium" }]}>{tr("exam.goBack")}</Text>
               </Pressable>
               <Pressable
                 style={[styles.confirmBtnSubmit]}
                 onPress={() => { setShowConfirm(false); handleSubmit(); }}
+                accessibilityRole="button"
+                accessibilityLabel={tr("exam.submit")}
               >
                 <LinearGradient
                   colors={[colors.success, "#2E7D32"]}
@@ -894,6 +1189,7 @@ const styles = StyleSheet.create({
   },
   headerBtn: { padding: 4 },
   headerCenter: { alignItems: "center", gap: 4 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerTitle: { fontSize: 13 },
   timerBadge: {
     flexDirection: "row",
@@ -949,6 +1245,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 14,
     gap: 14,
+    minHeight: 56,
   },
   optionLabel: {
     width: 34,
@@ -959,6 +1256,33 @@ const styles = StyleSheet.create({
   },
   optionLabelText: { fontSize: 14 },
   optionText: { flex: 1, fontSize: 15, lineHeight: 22 },
+  confidenceContainer: {
+    marginTop: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  confidenceLabel: {
+    fontSize: 13,
+  },
+  confidenceBtns: {
+    flexDirection: "row",
+    gap: 8,
+    flex: 1,
+  },
+  confidenceBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    flex: 1,
+    justifyContent: "center",
+  },
+  confidenceBtnText: {
+    fontSize: 13,
+  },
   streakBurst: {
     position: "absolute",
     top: "35%",
@@ -994,6 +1318,9 @@ const styles = StyleSheet.create({
   },
   navBtnText: { fontSize: 15 },
   skipBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,

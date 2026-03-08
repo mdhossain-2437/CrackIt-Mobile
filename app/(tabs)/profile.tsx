@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,10 @@ import {
   Alert,
   Platform,
   Dimensions,
+  RefreshControl,
+  Modal,
+  Switch,
+  Linking,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +20,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   FadeInDown,
   FadeInRight,
+  FadeIn,
   useSharedValue,
   useAnimatedStyle,
   withTiming,
@@ -27,6 +32,7 @@ import Animated, {
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 import { EXAM_TYPES } from "@/lib/questions";
+import { ACHIEVEMENTS, getAchievementProgress, getRarityColor, type AchievementDefinition } from "@/lib/achievements";
 import type { Language } from "@/lib/i18n";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -49,20 +55,130 @@ function AnimatedCounter({ value, suffix = "", delay = 0, color }: { value: numb
   );
 }
 
-function AchievementBadge({ icon, label, unlocked, color, index }: { icon: string; label: string; unlocked: boolean; color: string; index: number }) {
+function AchievementBadge({
+  achievement,
+  unlocked,
+  progress,
+  index,
+  onPress,
+}: {
+  achievement: AchievementDefinition;
+  unlocked: boolean;
+  progress: number;
+  index: number;
+  onPress: () => void;
+}) {
   const colors = useColors();
+  const rarityColor = getRarityColor(achievement.rarity);
+  const displayColor = unlocked ? rarityColor : colors.textTertiary;
+
   return (
-    <Animated.View
-      entering={FadeInRight.delay(200 + index * 100).duration(400)}
-      style={[styles.achievementBadge, { backgroundColor: unlocked ? color + "18" : colors.surface, borderColor: unlocked ? color + "40" : colors.borderLight }]}
-    >
-      <View style={[styles.achievementIcon, { backgroundColor: unlocked ? color + "25" : colors.borderLight }]}>
-        <Ionicons name={icon as any} size={20} color={unlocked ? color : colors.textTertiary} />
-      </View>
-      <Text style={[styles.achievementLabel, { color: unlocked ? colors.text : colors.textTertiary, fontFamily: "Inter_500Medium" }]} numberOfLines={1}>
-        {label}
-      </Text>
-    </Animated.View>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${achievement.name} achievement${unlocked ? ", earned" : ", locked"}`}>
+      <Animated.View
+        entering={FadeInDown.delay(200 + index * 60).duration(300)}
+        style={[
+          styles.achievementBadge,
+          {
+            backgroundColor: unlocked ? rarityColor + "12" : colors.surface,
+            borderColor: unlocked ? rarityColor + "35" : colors.borderLight,
+          },
+        ]}
+      >
+        <View style={[styles.achievementIcon, { backgroundColor: unlocked ? rarityColor + "20" : colors.borderLight }]}>
+          <Ionicons name={achievement.icon as any} size={20} color={displayColor} />
+        </View>
+        <Text
+          style={[styles.achievementLabel, { color: unlocked ? colors.text : colors.textTertiary, fontFamily: "Inter_500Medium" }]}
+          numberOfLines={2}
+        >
+          {achievement.name}
+        </Text>
+        {!unlocked && progress > 0 && (
+          <View style={[styles.achievementProgressTrack, { backgroundColor: colors.borderLight }]}>
+            <View style={[styles.achievementProgressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: rarityColor }]} />
+          </View>
+        )}
+        {unlocked && (
+          <View style={[styles.rarityBadge, { backgroundColor: rarityColor + "20" }]}>
+            <Text style={[styles.rarityText, { color: rarityColor, fontFamily: "Inter_600SemiBold" }]}>
+              {achievement.rarity.toUpperCase()}
+            </Text>
+          </View>
+        )}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function AchievementDetailModal({
+  visible,
+  achievement,
+  unlocked,
+  progress,
+  onClose,
+  language,
+}: {
+  visible: boolean;
+  achievement: AchievementDefinition | null;
+  unlocked: boolean;
+  progress: number;
+  onClose: () => void;
+  language: Language;
+}) {
+  const colors = useColors();
+  if (!achievement) return null;
+
+  const rarityColor = getRarityColor(achievement.rarity);
+  const name = language === "bn" ? achievement.nameBn : achievement.name;
+  const desc = language === "bn" ? achievement.descriptionBn : achievement.description;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={[styles.modalContent, { backgroundColor: colors.surface }]} onPress={(e) => e.stopPropagation()}>
+          <View style={[styles.modalIconWrap, { backgroundColor: unlocked ? rarityColor + "20" : colors.borderLight }]}>
+            <Ionicons name={achievement.icon as any} size={40} color={unlocked ? rarityColor : colors.textTertiary} />
+          </View>
+
+          <Text style={[styles.modalTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>{name}</Text>
+          <Text style={[styles.modalDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>{desc}</Text>
+
+          <View style={[styles.modalRarityRow, { backgroundColor: rarityColor + "12" }]}>
+            <Ionicons name="diamond-outline" size={14} color={rarityColor} />
+            <Text style={[styles.modalRarityText, { color: rarityColor, fontFamily: "Inter_600SemiBold" }]}>
+              {achievement.rarity.charAt(0).toUpperCase() + achievement.rarity.slice(1)}
+            </Text>
+            <Text style={[styles.modalXpText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
+              +{achievement.xpReward} XP
+            </Text>
+          </View>
+
+          {unlocked ? (
+            <View style={[styles.modalStatusBadge, { backgroundColor: colors.success + "15" }]}>
+              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+              <Text style={[styles.modalStatusText, { color: colors.success, fontFamily: "Inter_600SemiBold" }]}>
+                {language === "bn" ? "অর্জিত!" : "Earned!"}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ width: "100%", marginTop: 12 }}>
+              <View style={[styles.modalProgressTrack, { backgroundColor: colors.borderLight }]}>
+                <View style={[styles.modalProgressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: rarityColor }]} />
+              </View>
+              <Text style={[styles.modalProgressText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                {Math.round(progress * 100)}% {language === "bn" ? "সম্পন্ন" : "complete"}
+              </Text>
+            </View>
+          )}
+
+          <Pressable style={[styles.modalCloseBtn, { backgroundColor: colors.primary }]} onPress={onClose}>
+            <Text style={[styles.modalCloseBtnText, { fontFamily: "Inter_600SemiBold" }]}>
+              {language === "bn" ? "বন্ধ করুন" : "Close"}
+            </Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -79,11 +195,13 @@ function SettingsGroup({ title, children, colors }: { title: string; children: R
   );
 }
 
-function SettingsRow({ icon, iconColor, label, value, onPress, isLast, colors }: { icon: string; iconColor: string; label: string; value?: string; onPress?: () => void; isLast?: boolean; colors: any }) {
+function SettingsRow({ icon, iconColor, label, value, onPress, isLast, colors, right }: { icon: string; iconColor: string; label: string; value?: string; onPress?: () => void; isLast?: boolean; colors: any; right?: React.ReactNode }) {
   return (
     <Pressable
       style={[styles.settingsRow, !isLast && { borderBottomWidth: 1, borderBottomColor: colors.borderLight }]}
       onPress={onPress}
+      accessibilityRole={onPress ? "button" : "text"}
+      accessibilityLabel={label}
     >
       <View style={[styles.settingsIconWrap, { backgroundColor: iconColor + "18" }]}>
         <Ionicons name={icon as any} size={18} color={iconColor} />
@@ -96,15 +214,27 @@ function SettingsRow({ icon, iconColor, label, value, onPress, isLast, colors }:
           {value}
         </Text>
       )}
-      {onPress && <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />}
+      {right}
+      {onPress && !right && <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />}
     </Pressable>
   );
+}
+
+function getInitials(name: string): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0][0].toUpperCase();
 }
 
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { userData, setExamType, setLanguage, resetProgress, tr, language, authUser, isAuthenticated, logoutUser } = useApp();
+
+  const [selectedAchievement, setSelectedAchievement] = useState<AchievementDefinition | null>(null);
+  const [achievementModalVisible, setAchievementModalVisible] = useState(false);
+  const [dailyReminder, setDailyReminder] = useState(false);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const examTypeInfo = EXAM_TYPES.find((e) => e.id === userData.examType);
@@ -118,17 +248,61 @@ export default function ProfileScreen() {
       ? Math.round(userData.examHistory.reduce((sum, e) => sum + e.score, 0) / totalExams)
       : 0;
 
+  const bestStreak = userData.streak;
+  const totalStudySeconds = userData.examHistory.reduce((sum, e) => sum + (e.totalTime || 0), 0);
+  const studyHours = Math.round((totalStudySeconds / 3600) * 10) / 10;
+
   const examName = language === "bn" ? examTypeInfo?.nameBn : examTypeInfo?.name;
 
   const level = Math.floor(userData.xp / 100) + 1;
   const xpInLevel = userData.xp % 100;
+  const totalXp = userData.xp;
 
-  const achievements = [
-    { icon: "flame", label: language === "bn" ? "৭ দিনের ধারা" : "7-Day Streak", unlocked: userData.streak >= 7, color: colors.streak },
-    { icon: "trophy", label: language === "bn" ? "১০০ প্রশ্ন" : "100 Questions", unlocked: userData.totalQuestionsSolved >= 100, color: colors.warning },
-    { icon: "star", label: language === "bn" ? "৮০%+ স্কোর" : "80%+ Score", unlocked: avgScore >= 80, color: colors.primary },
-    { icon: "ribbon", label: language === "bn" ? "১০ পরীক্ষা" : "10 Exams", unlocked: totalExams >= 10, color: colors.success },
-  ];
+  const earnedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const ach of ACHIEVEMENTS) {
+      let earned = false;
+      switch (ach.condition) {
+        case "total_questions":
+          earned = userData.totalQuestionsSolved >= ach.threshold;
+          break;
+        case "streak":
+          earned = userData.streak >= ach.threshold;
+          break;
+        case "overall_accuracy":
+          if (userData.totalQuestionsSolved >= (ach.threshold >= 90 ? 100 : 50)) {
+            const acc = (userData.totalCorrect / userData.totalQuestionsSolved) * 100;
+            earned = acc >= ach.threshold;
+          }
+          break;
+        case "xp":
+          earned = userData.xp >= ach.threshold;
+          break;
+        case "subjects_practiced": {
+          const subjects = new Set<string>();
+          for (const key of Object.keys(userData.topicProgress)) {
+            const [subject] = key.split("::");
+            if (subject) subjects.add(subject);
+          }
+          earned = subjects.size >= ach.threshold;
+          break;
+        }
+      }
+      if (earned) keys.add(ach.key);
+    }
+    return keys;
+  }, [userData]);
+
+  const achievementStats = useMemo(() => {
+    const earned = ACHIEVEMENTS.filter((a) => earnedKeys.has(a.key));
+    const locked = ACHIEVEMENTS.filter((a) => !earnedKeys.has(a.key));
+    return { earned, locked, total: ACHIEVEMENTS.length, earnedCount: earned.length };
+  }, [earnedKeys]);
+
+  const handleAchievementPress = useCallback((achievement: AchievementDefinition) => {
+    setSelectedAchievement(achievement);
+    setAchievementModalVisible(true);
+  }, []);
 
   const handleReset = () => {
     if (Platform.OS === "web") {
@@ -147,13 +321,61 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = async () => {
-    await logoutUser();
+  const handleLogout = () => {
+    const doLogout = async () => {
+      await logoutUser();
+    };
+
+    if (Platform.OS === "web") {
+      if (confirm(language === "bn" ? "আপনি কি লগ আউট করতে চান?" : "Are you sure you want to log out?")) {
+        doLogout();
+      }
+    } else {
+      Alert.alert(
+        tr("auth.logout"),
+        language === "bn" ? "আপনি কি লগ আউট করতে চান?" : "Are you sure you want to log out?",
+        [
+          { text: tr("exam.cancel"), style: "cancel" },
+          { text: tr("auth.logout"), style: "destructive", onPress: doLogout },
+        ]
+      );
+    }
   };
+
+  const handleDeleteAccount = () => {
+    const doDelete = async () => {
+      await resetProgress();
+      await logoutUser();
+    };
+
+    if (Platform.OS === "web") {
+      if (confirm(language === "bn" ? "আপনি কি আপনার অ্যাকাউন্ট মুছে ফেলতে চান? এটি পূর্বাবস্থায় ফেরানো যাবে না।" : "Are you sure you want to delete your account? This cannot be undone.")) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        language === "bn" ? "অ্যাকাউন্ট মুছুন" : "Delete Account",
+        language === "bn" ? "আপনি কি আপনার অ্যাকাউন্ট মুছে ফেলতে চান? এটি পূর্বাবস্থায় ফেরানো যাবে না।" : "Are you sure you want to delete your account? This cannot be undone.",
+        [
+          { text: tr("exam.cancel"), style: "cancel" },
+          { text: language === "bn" ? "মুছুন" : "Delete", style: "destructive", onPress: doDelete },
+        ]
+      );
+    }
+  };
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 600);
+  }, []);
 
   const handleLogin = () => {
     router.push("/auth");
   };
+
+  const displayName = isAuthenticated && authUser ? authUser.name : tr("profile.student");
+  const initials = getInitials(displayName);
 
   return (
     <ScrollView
@@ -161,6 +383,14 @@ export default function ProfileScreen() {
       contentContainerStyle={{ paddingBottom: 120 }}
       contentInsetAdjustmentBehavior="never"
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
     >
       <LinearGradient
         colors={[colors.primary, colors.primaryDark, colors.primary + "CC"]}
@@ -169,13 +399,15 @@ export default function ProfileScreen() {
         style={[styles.headerGradient, { paddingTop: topInset + 20 }]}
       >
         <View style={styles.headerContent}>
-          <View style={styles.avatarContainer}>
+          <View style={styles.avatarContainer} accessibilityLabel={`${displayName} profile avatar`}>
             <LinearGradient
               colors={["#FFFFFF40", "#FFFFFF15"]}
               style={styles.avatarRing}
             >
               <View style={styles.avatarInner}>
-                <Ionicons name="person" size={36} color={colors.primary} />
+                <Text style={[styles.avatarInitials, { color: colors.primary, fontFamily: "Inter_700Bold" }]}>
+                  {initials}
+                </Text>
               </View>
             </LinearGradient>
             <View style={styles.levelBadge}>
@@ -186,7 +418,7 @@ export default function ProfileScreen() {
           </View>
 
           <Text style={[styles.headerName, { fontFamily: "Inter_700Bold" }]}>
-            {isAuthenticated && authUser ? authUser.name : tr("profile.student")}
+            {displayName}
           </Text>
           {isAuthenticated && authUser && (
             <Text style={[styles.headerEmail, { fontFamily: "Inter_400Regular" }]}>
@@ -212,11 +444,19 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.xpBarContainer}>
+            <View style={styles.xpLevelRow}>
+              <Text style={[styles.xpLevelLabel, { fontFamily: "Inter_600SemiBold" }]}>
+                {language === "bn" ? "লেভেল" : "Level"} {level}
+              </Text>
+              <Text style={[styles.xpTotalLabel, { fontFamily: "Inter_500Medium" }]}>
+                {totalXp} XP {language === "bn" ? "মোট" : "total"}
+              </Text>
+            </View>
             <View style={styles.xpBarTrack}>
               <View style={[styles.xpBarFill, { width: `${xpInLevel}%` }]} />
             </View>
             <Text style={[styles.xpBarLabel, { fontFamily: "Inter_500Medium" }]}>
-              {xpInLevel}/100 XP
+              {xpInLevel}/100 XP {language === "bn" ? "পরবর্তী লেভেলে" : "to next level"}
             </Text>
           </View>
         </View>
@@ -227,6 +467,8 @@ export default function ProfileScreen() {
           <Pressable
             style={[styles.loginCard, { backgroundColor: colors.surface, borderColor: colors.primary + "30" }]}
             onPress={handleLogin}
+            accessibilityRole="button"
+            accessibilityLabel={`${tr("auth.login")} or ${tr("auth.register")}`}
           >
             <LinearGradient
               colors={[colors.primary + "15", colors.primary + "05"]}
@@ -251,15 +493,16 @@ export default function ProfileScreen() {
 
       <View style={[styles.statsRow, { marginTop: isAuthenticated ? -20 : 16 }]}>
         {[
-          { icon: "flame", color: colors.streak, val: userData.streak, label: tr("profile.dayStreak"), delay: 0 },
+          { icon: "flame", color: colors.streak, val: bestStreak, label: tr("profile.dayStreak"), delay: 0 },
           { icon: "checkmark-done", color: colors.success, val: userData.totalQuestionsSolved, label: tr("profile.questions"), delay: 100 },
           { icon: "analytics", color: colors.primary, val: accuracy, label: tr("dashboard.accuracy"), suffix: "%", delay: 200 },
-          { icon: "trophy", color: colors.warning, val: avgScore, label: tr("profile.avgScore"), suffix: "%", delay: 300 },
+          { icon: "time-outline", color: colors.warning, val: studyHours, label: language === "bn" ? "ঘন্টা পড়া" : "Study Hours", suffix: "h", delay: 300 },
         ].map((stat, i) => (
           <Animated.View
             key={stat.label}
             entering={FadeInDown.delay(200 + i * 80).duration(400)}
             style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+            accessibilityLabel={`${stat.label}: ${stat.val}${stat.suffix || ""}`}
           >
             <View style={[styles.statIconWrap, { backgroundColor: stat.color + "18" }]}>
               <Ionicons name={stat.icon as any} size={20} color={stat.color} />
@@ -273,14 +516,31 @@ export default function ProfileScreen() {
       </View>
 
       <Animated.View entering={FadeInDown.delay(400).duration(400)} style={{ marginHorizontal: 20, marginBottom: 20 }}>
-        <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-          {language === "bn" ? "অর্জন" : "Achievements"}
-        </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.achievementsRow}>
-          {achievements.map((ach, idx) => (
-            <AchievementBadge key={ach.label} {...ach} index={idx} />
-          ))}
-        </ScrollView>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+            {language === "bn" ? "অর্জন" : "Achievements"}
+          </Text>
+          <Text style={[styles.sectionBadge, { color: colors.primary, backgroundColor: colors.primary + "12", fontFamily: "Inter_600SemiBold" }]}>
+            {achievementStats.earnedCount}/{achievementStats.total}
+          </Text>
+        </View>
+
+        <View style={styles.achievementsGrid}>
+          {ACHIEVEMENTS.map((ach, idx) => {
+            const unlocked = earnedKeys.has(ach.key);
+            const progress = getAchievementProgress(userData, ach);
+            return (
+              <AchievementBadge
+                key={ach.key}
+                achievement={ach}
+                unlocked={unlocked}
+                progress={progress}
+                index={idx}
+                onPress={() => handleAchievementPress(ach)}
+              />
+            );
+          })}
+        </View>
       </Animated.View>
 
       {Object.keys(userData.subjectProgress).length > 0 && (
@@ -327,6 +587,9 @@ export default function ProfileScreen() {
                 key={lang}
                 style={[styles.settingsRow, idx === 0 && { borderBottomWidth: 1, borderBottomColor: colors.borderLight }]}
                 onPress={() => setLanguage(lang)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected }}
+                accessibilityLabel={lang === "en" ? "English" : "Bangla"}
               >
                 <View style={[styles.settingsIconWrap, { backgroundColor: isSelected ? colors.primary + "18" : colors.borderLight }]}>
                   <Ionicons name="language" size={18} color={isSelected ? colors.primary : colors.textSecondary} />
@@ -351,6 +614,9 @@ export default function ProfileScreen() {
                 key={exam.id}
                 style={[styles.settingsRow, idx < EXAM_TYPES.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.borderLight }]}
                 onPress={() => setExamType(exam.id)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected }}
+                accessibilityLabel={name}
               >
                 <View style={[styles.settingsIconWrap, { backgroundColor: isSelected ? colors.primary + "18" : colors.borderLight }]}>
                   <Ionicons
@@ -374,8 +640,55 @@ export default function ProfileScreen() {
         </SettingsGroup>
       </Animated.View>
 
+      <Animated.View entering={FadeInDown.delay(750).duration(400)}>
+        <SettingsGroup title={(language === "bn" ? "পছন্দসমূহ" : "PREFERENCES").toUpperCase()} colors={colors}>
+          <SettingsRow
+            icon="notifications-outline"
+            iconColor={colors.warning}
+            label={language === "bn" ? "দৈনিক অনুস্মারক" : "Daily Reminder"}
+            colors={colors}
+            right={
+              <Switch
+                value={dailyReminder}
+                onValueChange={setDailyReminder}
+                trackColor={{ false: colors.borderLight, true: colors.primary + "60" }}
+                thumbColor={dailyReminder ? colors.primary : colors.textTertiary}
+                accessibilityLabel={language === "bn" ? "দৈনিক অনুস্মারক" : "Daily reminder toggle"}
+              />
+            }
+          />
+        </SettingsGroup>
+      </Animated.View>
+
       <Animated.View entering={FadeInDown.delay(800).duration(400)}>
-        <SettingsGroup title={(language === "bn" ? "অন্যান্য" : "MORE").toUpperCase()} colors={colors}>
+        <SettingsGroup title={(language === "bn" ? "সম্পর্কে" : "ABOUT").toUpperCase()} colors={colors}>
+          <SettingsRow
+            icon="information-circle-outline"
+            iconColor={colors.primary}
+            label={language === "bn" ? "অ্যাপ সম্পর্কে" : "About CrackIt"}
+            colors={colors}
+            onPress={() => {}}
+          />
+          <SettingsRow
+            icon="shield-checkmark-outline"
+            iconColor={colors.success}
+            label={language === "bn" ? "গোপনীয়তা নীতি" : "Privacy Policy"}
+            colors={colors}
+            onPress={() => {}}
+          />
+          <SettingsRow
+            icon="document-text-outline"
+            iconColor={colors.accent}
+            label={language === "bn" ? "সেবার শর্তাবলী" : "Terms of Service"}
+            colors={colors}
+            isLast
+            onPress={() => {}}
+          />
+        </SettingsGroup>
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.delay(850).duration(400)}>
+        <SettingsGroup title={(language === "bn" ? "অ্যাকাউন্ট" : "ACCOUNT").toUpperCase()} colors={colors}>
           {isAuthenticated && (
             <SettingsRow
               icon="log-out-outline"
@@ -386,19 +699,38 @@ export default function ProfileScreen() {
             />
           )}
           <SettingsRow
-            icon="trash-outline"
-            iconColor={colors.error}
+            icon="refresh-outline"
+            iconColor={colors.warning}
             label={tr("profile.resetAll")}
             onPress={handleReset}
-            isLast
             colors={colors}
+            isLast={!isAuthenticated}
           />
+          {isAuthenticated && (
+            <SettingsRow
+              icon="trash-outline"
+              iconColor={colors.error}
+              label={language === "bn" ? "অ্যাকাউন্ট মুছুন" : "Delete Account"}
+              onPress={handleDeleteAccount}
+              isLast
+              colors={colors}
+            />
+          )}
         </SettingsGroup>
       </Animated.View>
 
       <Text style={[styles.version, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
         {tr("profile.version")}
       </Text>
+
+      <AchievementDetailModal
+        visible={achievementModalVisible}
+        achievement={selectedAchievement}
+        unlocked={selectedAchievement ? earnedKeys.has(selectedAchievement.key) : false}
+        progress={selectedAchievement ? getAchievementProgress(userData, selectedAchievement) : 0}
+        onClose={() => setAchievementModalVisible(false)}
+        language={language}
+      />
     </ScrollView>
   );
 }
@@ -433,6 +765,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
+  },
+  avatarInitials: {
+    fontSize: 28,
   },
   levelBadge: {
     position: "absolute",
@@ -483,6 +818,20 @@ const styles = StyleSheet.create({
     width: "80%",
     alignItems: "center",
     gap: 4,
+  },
+  xpLevelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 2,
+  },
+  xpLevelLabel: {
+    fontSize: 12,
+    color: "#FFFFFFDD",
+  },
+  xpTotalLabel: {
+    fontSize: 11,
+    color: "#FFFFFFAA",
   },
   xpBarTrack: {
     height: 6,
@@ -556,23 +905,36 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "center",
   },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 14,
-    marginBottom: 12,
     letterSpacing: 0.5,
   },
-  achievementsRow: {
+  sectionBadge: {
+    fontSize: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  achievementsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
-    paddingRight: 20,
   },
   achievementBadge: {
     alignItems: "center",
     paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
     borderRadius: 14,
     borderWidth: 1,
-    gap: 8,
-    minWidth: 90,
+    gap: 6,
+    width: (SCREEN_WIDTH - 70) / 3,
   },
   achievementIcon: {
     width: 40,
@@ -582,8 +944,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   achievementLabel: {
-    fontSize: 11,
+    fontSize: 10,
     textAlign: "center",
+    lineHeight: 14,
+  },
+  achievementProgressTrack: {
+    width: "80%",
+    height: 3,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  achievementProgressFill: {
+    height: 3,
+    borderRadius: 2,
+  },
+  rarityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  rarityText: {
+    fontSize: 7,
+    letterSpacing: 0.5,
   },
   progressCard: {
     borderRadius: 16,
@@ -664,5 +1046,90 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
     marginBottom: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 30,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+  },
+  modalIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  modalDesc: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  modalRarityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  modalRarityText: {
+    fontSize: 12,
+    flex: 1,
+  },
+  modalXpText: {
+    fontSize: 12,
+  },
+  modalStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  modalStatusText: {
+    fontSize: 14,
+  },
+  modalProgressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  modalProgressFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  modalProgressText: {
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 6,
+  },
+  modalCloseBtn: {
+    marginTop: 20,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  modalCloseBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
   },
 });

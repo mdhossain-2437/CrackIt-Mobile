@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -117,14 +117,18 @@ export default function AIScreen() {
       <View style={styles.chipsRow}>
         {(["en", "bn"] as Language[]).map((lang) => {
           const isSelected = questionLang === lang;
+          const label = lang === "en" ? tr("common.english") : tr("common.bangla");
           return (
             <Pressable
               key={lang}
               style={[styles.chip, { backgroundColor: isSelected ? colors.primary : colors.surface, borderColor: isSelected ? colors.primary : colors.border }]}
               onPress={() => setQuestionLang(lang)}
+              accessibilityRole="radio"
+              accessibilityLabel={label}
+              accessibilityState={{ selected: isSelected }}
             >
               <Text style={[styles.chipText, { color: isSelected ? "#FFFFFF" : colors.text, fontFamily: "Inter_500Medium" }]}>
-                {lang === "en" ? tr("common.english") : tr("common.bangla")}
+                {label}
               </Text>
             </Pressable>
           );
@@ -141,14 +145,18 @@ export default function AIScreen() {
       >
         {EXAM_TYPES.map((exam) => {
           const isSelected = selectedExamType === exam.id;
+          const examLabel = language === "bn" ? exam.nameBn : exam.name;
           return (
             <Pressable
               key={exam.id}
               style={[styles.chip, { backgroundColor: isSelected ? colors.primary : colors.surface, borderColor: isSelected ? colors.primary : colors.border }]}
               onPress={() => setSelectedExamType(exam.id)}
+              accessibilityRole="radio"
+              accessibilityLabel={examLabel}
+              accessibilityState={{ selected: isSelected }}
             >
               <Text style={[styles.chipText, { color: isSelected ? "#FFFFFF" : colors.text, fontFamily: "Inter_500Medium" }]}>
-                {language === "bn" ? exam.nameBn : exam.name}
+                {examLabel}
               </Text>
             </Pressable>
           );
@@ -164,6 +172,7 @@ export default function AIScreen() {
         placeholderTextColor={colors.textTertiary}
         value={subject}
         onChangeText={setSubject}
+        accessibilityLabel={tr("ai.subject")}
       />
 
       {subjects.length > 0 && (
@@ -195,6 +204,7 @@ export default function AIScreen() {
         placeholderTextColor={colors.textTertiary}
         value={topic}
         onChangeText={setTopic}
+        accessibilityLabel={tr("ai.topic")}
       />
 
       <Text style={[styles.label, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
@@ -208,6 +218,9 @@ export default function AIScreen() {
               key={d.id}
               style={[styles.chip, { backgroundColor: isSelected ? colors.primary : colors.surface, borderColor: isSelected ? colors.primary : colors.border }]}
               onPress={() => setDifficulty(d.id)}
+              accessibilityRole="radio"
+              accessibilityLabel={d.label}
+              accessibilityState={{ selected: isSelected }}
             >
               <Text style={[styles.chipText, { color: isSelected ? "#FFFFFF" : colors.text, fontFamily: "Inter_500Medium" }]}>
                 {d.label}
@@ -228,6 +241,9 @@ export default function AIScreen() {
               key={c}
               style={[styles.chip, { backgroundColor: isSelected ? colors.primary : colors.surface, borderColor: isSelected ? colors.primary : colors.border }]}
               onPress={() => setCount(c)}
+              accessibilityRole="radio"
+              accessibilityLabel={`${c} ${tr("practice.questions")}`}
+              accessibilityState={{ selected: isSelected }}
             >
               <Text style={[styles.chipText, { color: isSelected ? "#FFFFFF" : colors.text, fontFamily: "Inter_500Medium" }]}>
                 {c}
@@ -247,6 +263,9 @@ export default function AIScreen() {
         style={[styles.generateButton, { backgroundColor: isGenerating ? colors.border : colors.primary }]}
         onPress={handleGenerate}
         disabled={isGenerating}
+        accessibilityRole="button"
+        accessibilityLabel={isGenerating ? tr("ai.generating") : tr("ai.generate")}
+        accessibilityState={{ disabled: isGenerating }}
       >
         {isGenerating ? (
           <View style={styles.loadingRow}>
@@ -274,6 +293,8 @@ export default function AIScreen() {
             <Pressable
               style={[styles.practiceBtn, { backgroundColor: colors.success }]}
               onPress={handlePractice}
+              accessibilityRole="button"
+              accessibilityLabel={tr("common.practice")}
             >
               <Ionicons name="play" size={16} color="#FFFFFF" />
               <Text style={[styles.practiceBtnText, { fontFamily: "Inter_600SemiBold" }]}>

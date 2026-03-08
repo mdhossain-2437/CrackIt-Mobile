@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   Platform,
+  Share,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,14 +19,38 @@ import Animated, {
   withTiming,
   withDelay,
   withSpring,
+  withSequence,
   Easing,
   FadeIn,
   FadeInDown,
   FadeInUp,
+  ZoomIn,
 } from "react-native-reanimated";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
-import type { Difficulty, PracticeMode } from "@/lib/questions";
+import { checkAchievements, type AchievementDefinition, getRarityColor } from "@/lib/achievements";
+import type { Difficulty, PracticeMode, Question } from "@/lib/questions";
+
+function getGrade(score: number): { grade: string; color: string; icon: string } {
+  if (score >= 95) return { grade: "A+", color: "#1B5E20", icon: "trophy" };
+  if (score >= 85) return { grade: "A", color: "#2E7D32", icon: "medal" };
+  if (score >= 75) return { grade: "B", color: "#1565C0", icon: "ribbon" };
+  if (score >= 60) return { grade: "C", color: "#E65100", icon: "star-half" };
+  if (score >= 40) return { grade: "D", color: "#BF360C", icon: "alert-circle" };
+  return { grade: "F", color: "#B71C1C", icon: "close-circle" };
+}
+
+function getXpLevel(xp: number): { level: number; currentXp: number; xpForNext: number } {
+  let level = 1;
+  let remaining = xp;
+  let threshold = 100;
+  while (remaining >= threshold) {
+    remaining -= threshold;
+    level++;
+    threshold = Math.floor(threshold * 1.3);
+  }
+  return { level, currentXp: remaining, xpForNext: threshold };
+}
 
 function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: any; label: string }) {
   const scale = useSharedValue(0.5);
@@ -99,6 +124,18 @@ function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: 
   );
 }
 
+function GradeBadge({ score, colors, tr }: { score: number; colors: any; tr: (key: string) => string }) {
+  const { grade, color, icon } = getGrade(score);
+
+  return (
+    <Animated.View entering={ZoomIn.delay(800).duration(500)} style={[styles.gradeBadge, { backgroundColor: color + "18", borderColor: color + "40" }]}>
+      <Ionicons name={icon as any} size={20} color={color} />
+      <Text style={[styles.gradeText, { color, fontFamily: "Inter_700Bold" }]}>{grade}</Text>
+      <Text style={[styles.gradeLabel, { color: color + "BB", fontFamily: "Inter_400Regular" }]}>{tr("result.grade")}</Text>
+    </Animated.View>
+  );
+}
+
 function AnimatedStatCard({
   icon,
   value,
@@ -145,6 +182,148 @@ function AnimatedStatCard({
       <Text style={[styles.statItemLabel, { color, fontFamily: "Inter_400Regular" }]}>
         {label}
       </Text>
+    </Animated.View>
+  );
+}
+
+function XpEarnedCard({ xpEarned, totalXp, colors, tr }: { xpEarned: number; totalXp: number; colors: any; tr: (key: string) => string }) {
+  const [displayXp, setDisplayXp] = useState(0);
+  const prevLevel = getXpLevel(totalXp - xpEarned);
+  const currentLevel = getXpLevel(totalXp);
+  const didLevelUp = currentLevel.level > prevLevel.level;
+
+  useEffect(() => {
+    let frame = 0;
+    const totalFrames = 40;
+    const timeout = setTimeout(() => {
+      const interval = setInterval(() => {
+        frame++;
+        const t = frame / totalFrames;
+        const eased = 1 - Math.pow(1 - t, 3);
+        setDisplayXp(Math.round(eased * xpEarned));
+        if (frame >= totalFrames) {
+          clearInterval(interval);
+          setDisplayXp(xpEarned);
+        }
+      }, 25);
+    }, 600);
+    return () => clearTimeout(timeout);
+  }, [xpEarned]);
+
+  return (
+    <Animated.View entering={FadeInDown.delay(500).duration(400)} style={[styles.xpCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+      <LinearGradient
+        colors={[colors.warning + "15", "transparent"]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.xpCardContent}>
+        <View style={styles.xpIconWrap}>
+          <Ionicons name="flash" size={22} color={colors.warning} />
+        </View>
+        <View style={styles.xpTextWrap}>
+          <Text style={[styles.xpTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+            +{displayXp} {tr("result.xpEarned")}
+          </Text>
+          <Text style={[styles.xpSubtitle, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+            Level {currentLevel.level} • {currentLevel.currentXp}/{currentLevel.xpForNext} XP
+          </Text>
+        </View>
+        {didLevelUp && (
+          <Animated.View entering={ZoomIn.delay(1500).duration(400)} style={[styles.levelUpBadge, { backgroundColor: colors.warning + "20" }]}>
+            <Ionicons name="arrow-up-circle" size={16} color={colors.warning} />
+            <Text style={[styles.levelUpText, { color: colors.warning, fontFamily: "Inter_700Bold" }]}>
+              {tr("result.levelUp")}
+            </Text>
+          </Animated.View>
+        )}
+      </View>
+    </Animated.View>
+  );
+}
+
+function AccuracyTrendChart({ examHistory, currentScore, colors, tr }: { examHistory: any[]; currentScore: number; colors: any; tr: (key: string) => string }) {
+  const recentScores = useMemo(() => {
+    const hist = examHistory.slice(0, 4).map((e: any) => e.score).reverse();
+    return [...hist, currentScore];
+  }, [examHistory, currentScore]);
+
+  if (recentScores.length < 2) {
+    return (
+      <Animated.View entering={FadeInDown.delay(650).duration(400)} style={[styles.trendCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+        <Text style={[styles.trendTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+          {tr("result.recentTrend")}
+        </Text>
+        <Text style={[styles.trendEmpty, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+          {tr("result.noHistory")}
+        </Text>
+      </Animated.View>
+    );
+  }
+
+  const maxScore = Math.max(...recentScores, 100);
+  const chartHeight = 60;
+
+  return (
+    <Animated.View entering={FadeInDown.delay(650).duration(400)} style={[styles.trendCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+      <Text style={[styles.trendTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+        {tr("result.recentTrend")}
+      </Text>
+      <View style={styles.trendChart}>
+        {recentScores.map((score, idx) => {
+          const height = Math.max(8, (score / maxScore) * chartHeight);
+          const isLast = idx === recentScores.length - 1;
+          const barColor = isLast ? colors.primary : colors.primary + "60";
+
+          return (
+            <View key={idx} style={styles.trendBarWrap}>
+              <Text style={[styles.trendBarValue, { color: isLast ? colors.primary : colors.textTertiary, fontFamily: isLast ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
+                {score}%
+              </Text>
+              <View style={[styles.trendBar, { height, backgroundColor: barColor, borderRadius: 4 }]} />
+              <Text style={[styles.trendBarLabel, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                {isLast ? "Now" : `#${idx + 1}`}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </Animated.View>
+  );
+}
+
+function AchievementPopup({ achievements, colors, tr, lang }: { achievements: AchievementDefinition[]; colors: any; tr: (key: string) => string; lang: string }) {
+  if (achievements.length === 0) return null;
+
+  return (
+    <Animated.View entering={FadeInDown.delay(1800).duration(500)} style={[styles.achievementSection, { marginHorizontal: 16, marginBottom: 16 }]}>
+      <Text style={[styles.achievementSectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+        🏆 {tr("result.achievementUnlocked")}
+      </Text>
+      {achievements.map((achievement, idx) => (
+        <Animated.View
+          key={achievement.key}
+          entering={ZoomIn.delay(2000 + idx * 200).duration(400)}
+          style={[styles.achievementCard, { backgroundColor: getRarityColor(achievement.rarity) + "15", borderColor: getRarityColor(achievement.rarity) + "40" }]}
+        >
+          <View style={[styles.achievementIconWrap, { backgroundColor: getRarityColor(achievement.rarity) + "25" }]}>
+            <Ionicons name={achievement.icon as any} size={22} color={getRarityColor(achievement.rarity)} />
+          </View>
+          <View style={styles.achievementTextWrap}>
+            <Text style={[styles.achievementName, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+              {lang === "bn" ? achievement.nameBn : achievement.name}
+            </Text>
+            <Text style={[styles.achievementDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {lang === "bn" ? achievement.descriptionBn : achievement.description}
+            </Text>
+          </View>
+          <View style={styles.achievementXpWrap}>
+            <Text style={[styles.achievementXp, { color: getRarityColor(achievement.rarity), fontFamily: "Inter_700Bold" }]}>
+              +{achievement.xpReward}
+            </Text>
+            <Text style={[styles.achievementXpLabel, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>XP</Text>
+          </View>
+        </Animated.View>
+      ))}
     </Animated.View>
   );
 }
@@ -206,6 +385,9 @@ function QuestionReviewItem({
     <Pressable
       style={[styles.reviewItem, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
       onPress={onToggle}
+      accessibilityRole="button"
+      accessibilityLabel={`Question ${index + 1}: ${isSkipped ? "Skipped" : isCorrect ? "Correct" : "Wrong"}`}
+      accessibilityState={{ expanded: isExpanded }}
     >
       <View style={styles.reviewHeader}>
         <View style={[styles.reviewBadge, {
@@ -310,11 +492,39 @@ function countDifficultyChanges(progression: Difficulty[]): number {
 export default function ResultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { lastResult, tr, language: appLanguage } = useApp();
+  const { lastResult, tr, language: appLanguage, userData, startExam } = useApp();
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const xpEarned = useMemo(() => {
+    if (!lastResult) return 0;
+    const correct = lastResult.correctAnswers;
+    const score = lastResult.score;
+    return correct * 10 + (score >= 80 ? 50 : score >= 60 ? 25 : 0);
+  }, [lastResult]);
+
+  const newAchievements = useMemo(() => {
+    if (!lastResult) return [];
+    const earnedKeys = new Set<string>();
+    const result = checkAchievements(userData, earnedKeys, {
+      sessionQuestions: lastResult.totalQuestions,
+      sessionAccuracy: lastResult.score,
+      practiceMode: lastResult.practiceMode,
+      perfectScore: lastResult.score === 100,
+      totalQuestionsInSession: lastResult.totalQuestions,
+    });
+    return result.newlyEarned;
+  }, [lastResult, userData]);
+
+  const wrongQuestions = useMemo(() => {
+    if (!lastResult) return [];
+    return lastResult.questions.filter((q: Question, idx: number) => {
+      const answer = lastResult.answers[idx];
+      return answer && answer.selectedOption !== null && answer.selectedOption !== q.correctAnswer;
+    });
+  }, [lastResult]);
 
   useEffect(() => {
     if (!lastResult) {
@@ -325,6 +535,29 @@ export default function ResultScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   }, []);
+
+  const handlePracticeWrong = useCallback(() => {
+    if (wrongQuestions.length === 0) return;
+    startExam({
+      subject: lastResult!.subject,
+      topic: lastResult!.topic,
+      count: wrongQuestions.length,
+      timePerQuestion: 60,
+      questions: wrongQuestions,
+      practiceMode: "relaxed",
+    });
+    router.replace("/exam");
+  }, [wrongQuestions, lastResult, startExam]);
+
+  const handleShare = useCallback(async () => {
+    if (!lastResult) return;
+    const message = appLanguage === "bn"
+      ? `🎯 আমি CrackIt-এ ${lastResult.subject} পরীক্ষায় ${lastResult.score}% স্কোর করেছি! ${lastResult.correctAnswers}/${lastResult.totalQuestions} সঠিক। #CrackIt #ExamPrep`
+      : `🎯 I scored ${lastResult.score}% on ${lastResult.subject} quiz on CrackIt! ${lastResult.correctAnswers}/${lastResult.totalQuestions} correct. #CrackIt #ExamPrep`;
+    try {
+      await Share.share({ message });
+    } catch (e) {}
+  }, [lastResult, appLanguage]);
 
   if (!lastResult) return null;
 
@@ -348,13 +581,15 @@ export default function ResultScreen() {
         style={[styles.headerGradient, { paddingTop: topInset + 12 }]}
       >
         <View style={styles.header}>
-          <Pressable onPress={() => router.replace("/(tabs)")} style={styles.closeBtn}>
+          <Pressable onPress={() => router.replace("/(tabs)")} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close results">
             <Ionicons name="close" size={24} color={colors.text} />
           </Pressable>
           <Text style={[styles.headerTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
             {tr("result.title")}
           </Text>
-          <View style={{ width: 32 }} />
+          <Pressable onPress={handleShare} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel={tr("result.shareResult")}>
+            <Ionicons name="share-outline" size={22} color={colors.primary} />
+          </Pressable>
         </View>
       </LinearGradient>
 
@@ -363,7 +598,10 @@ export default function ResultScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.scoreSection}>
-          <AnimatedScoreCircle score={lastResult.score} colors={colors} label={tr("result.score")} />
+          <View style={styles.scoreAndGradeRow}>
+            <AnimatedScoreCircle score={lastResult.score} colors={colors} label={tr("result.score")} />
+            <GradeBadge score={lastResult.score} colors={colors} tr={tr} />
+          </View>
 
           {lastResult.practiceMode && (
             <Animated.View entering={FadeIn.delay(400).duration(300)} style={[styles.modeBadge, {
@@ -428,7 +666,18 @@ export default function ResultScreen() {
           />
         </View>
 
+        <XpEarnedCard xpEarned={xpEarned} totalXp={userData.xp} colors={colors} tr={tr} />
+
         <PerformanceComparisonCard score={lastResult.score} colors={colors} tr={tr} lang={appLanguage} />
+
+        <AccuracyTrendChart
+          examHistory={userData.examHistory.filter((e: any) => e.id !== lastResult.id)}
+          currentScore={lastResult.score}
+          colors={colors}
+          tr={tr}
+        />
+
+        <AchievementPopup achievements={newAchievements} colors={colors} tr={tr} lang={appLanguage} />
 
         {lastResult.adaptive && lastResult.difficultyProgression && lastResult.difficultyProgression.length > 1 && (
           <Animated.View entering={FadeInDown.delay(700).duration(400)} style={[styles.progressionSection, { marginHorizontal: 16, marginBottom: 24 }]}>
@@ -516,9 +765,31 @@ export default function ResultScreen() {
         </View>
 
         <Animated.View entering={FadeInUp.delay(800).duration(400)} style={styles.actionButtons}>
+          {wrongQuestions.length > 0 && (
+            <Pressable
+              style={styles.wrongAnswerBtnWrap}
+              onPress={handlePracticeWrong}
+              accessibilityRole="button"
+              accessibilityLabel={tr("result.practiceWrong")}
+            >
+              <LinearGradient
+                colors={[colors.error, colors.error + "CC"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.wrongAnswerBtn}
+              >
+                <Ionicons name="reload" size={18} color="#FFFFFF" />
+                <Text style={[styles.wrongAnswerBtnText, { fontFamily: "Inter_600SemiBold" }]}>
+                  {tr("result.practiceWrong")} ({wrongQuestions.length})
+                </Text>
+              </LinearGradient>
+            </Pressable>
+          )}
+
           <Pressable
             style={styles.retryButtonWrap}
             onPress={() => router.replace("/(tabs)/practice")}
+            accessibilityRole="button"
           >
             <View style={[styles.retryButton, { borderColor: colors.primary, borderWidth: 1.5 }]}>
               <Ionicons name="refresh" size={18} color={colors.primary} />
@@ -529,8 +800,23 @@ export default function ResultScreen() {
           </Pressable>
 
           <Pressable
+            style={styles.shareButtonWrap}
+            onPress={handleShare}
+            accessibilityRole="button"
+            accessibilityLabel={tr("result.shareResult")}
+          >
+            <View style={[styles.shareButton, { borderColor: colors.accent, borderWidth: 1.5 }]}>
+              <Ionicons name="share-social" size={18} color={colors.accent} />
+              <Text style={[styles.shareButtonText, { color: colors.accent, fontFamily: "Inter_600SemiBold" }]}>
+                {tr("result.shareResult")}
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable
             style={styles.doneButtonWrap}
             onPress={() => router.replace("/(tabs)")}
+            accessibilityRole="button"
           >
             <LinearGradient
               colors={[colors.primary, colors.primary + "DD"]}
@@ -567,6 +853,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 20,
   },
+  scoreAndGradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 20,
+  },
   scoreContainer: {
     alignItems: "center",
   },
@@ -600,6 +892,17 @@ const styles = StyleSheet.create({
   },
   scoreValue: { fontSize: 38 },
   scoreLabel: { fontSize: 13, marginTop: 2 },
+  gradeBadge: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    gap: 2,
+  },
+  gradeText: { fontSize: 24 },
+  gradeLabel: { fontSize: 10 },
   modeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -627,12 +930,98 @@ const styles = StyleSheet.create({
   },
   statItemValue: { fontSize: 18 },
   statItemLabel: { fontSize: 10 },
+  xpCard: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  xpCardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  xpIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(251, 191, 36, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  xpTextWrap: {
+    flex: 1,
+  },
+  xpTitle: { fontSize: 15 },
+  xpSubtitle: { fontSize: 12, marginTop: 2 },
+  levelUpBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  levelUpText: { fontSize: 11 },
+  trendCard: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 16,
+  },
+  trendTitle: { fontSize: 15, marginBottom: 12 },
+  trendEmpty: { fontSize: 13, textAlign: "center", paddingVertical: 8 },
+  trendChart: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-around",
+    height: 100,
+    paddingTop: 10,
+  },
+  trendBarWrap: {
+    alignItems: "center",
+    flex: 1,
+    gap: 4,
+  },
+  trendBarValue: { fontSize: 11 },
+  trendBar: {
+    width: 28,
+    minHeight: 8,
+  },
+  trendBarLabel: { fontSize: 10 },
+  achievementSection: {},
+  achievementSectionTitle: { fontSize: 16, marginBottom: 10 },
+  achievementCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 12,
+  },
+  achievementIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  achievementTextWrap: { flex: 1 },
+  achievementName: { fontSize: 14 },
+  achievementDesc: { fontSize: 12, marginTop: 2 },
+  achievementXpWrap: { alignItems: "center" },
+  achievementXp: { fontSize: 14 },
+  achievementXpLabel: { fontSize: 10 },
   comparisonCard: {
     marginHorizontal: 16,
     borderRadius: 16,
     borderWidth: 1,
     overflow: "hidden",
-    marginBottom: 24,
+    marginBottom: 16,
   },
   comparisonGradient: {
     ...StyleSheet.absoluteFillObject,
@@ -725,6 +1114,19 @@ const styles = StyleSheet.create({
     marginTop: 20,
     gap: 10,
   },
+  wrongAnswerBtnWrap: {
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  wrongAnswerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 15,
+    borderRadius: 14,
+  },
+  wrongAnswerBtnText: { fontSize: 15, color: "#FFFFFF" },
   retryButtonWrap: {},
   retryButton: {
     flexDirection: "row",
@@ -735,6 +1137,16 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   retryButtonText: { fontSize: 16 },
+  shareButtonWrap: {},
+  shareButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 15,
+    borderRadius: 14,
+  },
+  shareButtonText: { fontSize: 16 },
   doneButtonWrap: {
     borderRadius: 14,
     overflow: "hidden",
