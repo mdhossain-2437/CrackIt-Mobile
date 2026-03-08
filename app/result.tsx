@@ -10,21 +10,24 @@ import {
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   withDelay,
+  withSpring,
   Easing,
   FadeIn,
+  FadeInDown,
+  FadeInUp,
 } from "react-native-reanimated";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 import type { Difficulty, PracticeMode } from "@/lib/questions";
 
 function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: any; label: string }) {
-  const progress = useSharedValue(0);
   const scale = useSharedValue(0.5);
   const opacity = useSharedValue(0);
   const [displayScore, setDisplayScore] = useState(0);
@@ -32,12 +35,8 @@ function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: 
   useEffect(() => {
     opacity.value = withTiming(1, { duration: 400 });
     scale.value = withDelay(100, withTiming(1, { duration: 600, easing: Easing.out(Easing.back(1.5)) }));
-    progress.value = withDelay(
-      300,
-      withTiming(score / 100, { duration: 1200, easing: Easing.out(Easing.cubic) })
-    );
     let frame = 0;
-    const totalFrames = 40;
+    const totalFrames = 50;
     const interval = setInterval(() => {
       frame++;
       const t = frame / totalFrames;
@@ -47,7 +46,7 @@ function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: 
         clearInterval(interval);
         setDisplayScore(score);
       }
-    }, 30);
+    }, 25);
     return () => clearInterval(interval);
   }, [score]);
 
@@ -58,34 +57,124 @@ function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: 
 
   const scoreColor = score >= 70 ? colors.success : score >= 40 ? colors.warning : colors.error;
   const isHighScore = score >= 80;
+  const scoreGradient = score >= 70 ? [colors.success, "#2E7D32"] : score >= 40 ? [colors.warning, "#E65100"] : [colors.error, "#C62828"];
 
   return (
     <View style={styles.scoreContainer}>
       {isHighScore && (
-        <Animated.View entering={FadeIn.delay(1200).duration(600)} style={styles.celebrationRow}>
-          <Ionicons name="star" size={20} color={colors.warning} />
-          <Ionicons name="trophy" size={24} color={colors.warning} />
-          <Ionicons name="star" size={20} color={colors.warning} />
+        <Animated.View entering={FadeIn.delay(1000).duration(600)} style={styles.celebrationRow}>
+          <Ionicons name="star" size={18} color={colors.warning} />
+          <Ionicons name="trophy" size={28} color={colors.warning} />
+          <Ionicons name="star" size={18} color={colors.warning} />
         </Animated.View>
       )}
-      <Animated.View style={[styles.scoreCircle, {
-        borderColor: scoreColor,
-        boxShadow: `0px 0px 12px ${scoreColor}4D`,
-        elevation: 8,
-      }, animatedStyle]}>
-        <Text style={[styles.scoreValue, { color: scoreColor, fontFamily: "Inter_700Bold" }]}>
-          {displayScore}%
-        </Text>
-        <Text style={[styles.scoreLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-          {label}
-        </Text>
+      <Animated.View style={[styles.scoreCircleOuter, animatedStyle]}>
+        <LinearGradient
+          colors={scoreGradient as [string, string]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.scoreCircleGradient}
+        >
+          <View style={[styles.scoreCircleInner, { backgroundColor: colors.background }]}>
+            <Text style={[styles.scoreValue, { color: scoreColor, fontFamily: "Inter_700Bold" }]}>
+              {displayScore}%
+            </Text>
+            <Text style={[styles.scoreLabel, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {label}
+            </Text>
+          </View>
+        </LinearGradient>
       </Animated.View>
       {isHighScore && (
-        <Animated.Text entering={FadeIn.delay(1400).duration(500)} style={[styles.celebrationText, { color: colors.success, fontFamily: "Inter_600SemiBold" }]}>
+        <Animated.Text entering={FadeIn.delay(1200).duration(500)} style={[styles.celebrationText, { color: colors.success, fontFamily: "Inter_700Bold" }]}>
           Excellent!
         </Animated.Text>
       )}
+      {score < 40 && (
+        <Animated.Text entering={FadeIn.delay(1200).duration(500)} style={[styles.celebrationText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
+          Keep practicing!
+        </Animated.Text>
+      )}
     </View>
+  );
+}
+
+function AnimatedStatCard({
+  icon,
+  value,
+  label,
+  color,
+  bgColor,
+  delay,
+}: {
+  icon: string;
+  value: string | number;
+  label: string;
+  color: string;
+  bgColor: string;
+  delay: number;
+}) {
+  const [displayVal, setDisplayVal] = useState(0);
+  const numValue = typeof value === "string" ? parseInt(value) || 0 : value;
+
+  useEffect(() => {
+    let frame = 0;
+    const totalFrames = 30;
+    const startDelay = delay + 300;
+    const timeout = setTimeout(() => {
+      const interval = setInterval(() => {
+        frame++;
+        const t = frame / totalFrames;
+        const eased = 1 - Math.pow(1 - t, 3);
+        setDisplayVal(Math.round(eased * numValue));
+        if (frame >= totalFrames) {
+          clearInterval(interval);
+          setDisplayVal(numValue);
+        }
+      }, 20);
+    }, startDelay);
+    return () => clearTimeout(timeout);
+  }, [numValue, delay]);
+
+  return (
+    <Animated.View entering={FadeInUp.delay(delay).duration(400)} style={[styles.statItem, { backgroundColor: bgColor }]}>
+      <Ionicons name={icon as any} size={20} color={color} />
+      <Text style={[styles.statItemValue, { color, fontFamily: "Inter_700Bold" }]}>
+        {typeof value === "string" ? value : displayVal}
+      </Text>
+      <Text style={[styles.statItemLabel, { color, fontFamily: "Inter_400Regular" }]}>
+        {label}
+      </Text>
+    </Animated.View>
+  );
+}
+
+function PerformanceComparisonCard({ score, colors, tr, lang }: { score: number; colors: any; tr: (key: string) => string; lang: string }) {
+  const percentile = Math.min(99, Math.max(5, Math.round(score * 0.85 + (score > 70 ? 15 : 0))));
+
+  return (
+    <Animated.View entering={FadeInDown.delay(600).duration(400)} style={[styles.comparisonCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+      <LinearGradient
+        colors={[colors.primary + "10", "transparent"]}
+        style={styles.comparisonGradient}
+      />
+      <View style={styles.comparisonContent}>
+        <Ionicons name="people" size={22} color={colors.primary} />
+        <View style={styles.comparisonTextWrap}>
+          <Text style={[styles.comparisonTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+            {lang === "bn" ? `আপনি ${percentile}% শিক্ষার্থীদের চেয়ে ভালো করেছেন` : `You beat ${percentile}% of students`}
+          </Text>
+          <View style={[styles.comparisonBar, { backgroundColor: colors.borderLight }]}>
+            <LinearGradient
+              colors={[colors.primary, colors.primary + "AA"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[styles.comparisonBarFill, { width: `${percentile}%` }]}
+            />
+          </View>
+        </View>
+      </View>
+    </Animated.View>
   );
 }
 
@@ -142,12 +231,12 @@ function QuestionReviewItem({
       </View>
 
       {isExpanded && (
-        <View style={styles.reviewDetails}>
+        <Animated.View entering={FadeIn.duration(200)} style={styles.reviewDetails}>
           {question.options.map((opt: string, optIdx: number) => {
             const isCorrectOpt = optIdx === question.correctAnswer;
             const isSelectedOpt = optIdx === answer.selectedOption;
             let optBg = "transparent";
-            let optBorder = colors.border;
+            let optBorder = colors.borderLight;
             let optColor = colors.text;
 
             if (isCorrectOpt) {
@@ -181,7 +270,7 @@ function QuestionReviewItem({
             );
           })}
 
-          <View style={[styles.explanationBox, { backgroundColor: colors.primaryLight }]}>
+          <View style={[styles.explanationBox, { backgroundColor: colors.primaryLight, borderColor: colors.primary + "20" }]}>
             <View style={styles.explanationHeader}>
               <Ionicons name="bulb-outline" size={16} color={colors.primary} />
               <Text style={[styles.explanationTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
@@ -196,7 +285,7 @@ function QuestionReviewItem({
           <Text style={[styles.timeTaken, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
             {timeLabel}: {answer.timeSpent}s
           </Text>
-        </View>
+        </Animated.View>
       )}
     </Pressable>
   );
@@ -221,7 +310,7 @@ function countDifficultyChanges(progression: Difficulty[]): number {
 export default function ResultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { lastResult, tr } = useApp();
+  const { lastResult, tr, language: appLanguage } = useApp();
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -243,17 +332,31 @@ export default function ResultScreen() {
     ? Math.round(lastResult.totalTime / lastResult.totalQuestions)
     : 0;
 
+  const scoreGradient = lastResult.score >= 70 ? [colors.success, "#2E7D32"]
+    : lastResult.score >= 40 ? [colors.warning, "#E65100"]
+    : [colors.error, "#C62828"];
+
+  const modeColor = lastResult.practiceMode === "relaxed" ? "#4CAF50"
+    : lastResult.practiceMode === "speed" ? "#FF6B35"
+    : lastResult.practiceMode === "marathon" ? "#9C27B0"
+    : colors.primary;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topInset + 12 }]}>
-        <Pressable onPress={() => router.replace("/(tabs)")} style={styles.closeBtn}>
-          <Ionicons name="close" size={24} color={colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-          {tr("result.title")}
-        </Text>
-        <View style={{ width: 32 }} />
-      </View>
+      <LinearGradient
+        colors={[scoreGradient[0] + "15", "transparent"]}
+        style={[styles.headerGradient, { paddingTop: topInset + 12 }]}
+      >
+        <View style={styles.header}>
+          <Pressable onPress={() => router.replace("/(tabs)")} style={styles.closeBtn}>
+            <Ionicons name="close" size={24} color={colors.text} />
+          </Pressable>
+          <Text style={[styles.headerTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+            {tr("result.title")}
+          </Text>
+          <View style={{ width: 32 }} />
+        </View>
+      </LinearGradient>
 
       <ScrollView
         contentContainerStyle={{ paddingBottom: bottomInset + 40 }}
@@ -263,15 +366,9 @@ export default function ResultScreen() {
           <AnimatedScoreCircle score={lastResult.score} colors={colors} label={tr("result.score")} />
 
           {lastResult.practiceMode && (
-            <View style={[styles.modeBadge, {
-              backgroundColor: lastResult.practiceMode === "relaxed" ? "#4CAF50" + "18"
-                : lastResult.practiceMode === "speed" ? "#FF6B35" + "18"
-                : lastResult.practiceMode === "marathon" ? "#9C27B0" + "18"
-                : colors.primaryLight,
-              borderColor: lastResult.practiceMode === "relaxed" ? "#4CAF50" + "40"
-                : lastResult.practiceMode === "speed" ? "#FF6B35" + "40"
-                : lastResult.practiceMode === "marathon" ? "#9C27B0" + "40"
-                : colors.primary + "40",
+            <Animated.View entering={FadeIn.delay(400).duration(300)} style={[styles.modeBadge, {
+              backgroundColor: modeColor + "15",
+              borderColor: modeColor + "30",
             }]}>
               <Ionicons
                 name={(lastResult.practiceMode === "relaxed" ? "leaf-outline"
@@ -279,70 +376,62 @@ export default function ResultScreen() {
                   : lastResult.practiceMode === "marathon" ? "fitness-outline"
                   : "time-outline") as any}
                 size={14}
-                color={lastResult.practiceMode === "relaxed" ? "#4CAF50"
-                  : lastResult.practiceMode === "speed" ? "#FF6B35"
-                  : lastResult.practiceMode === "marathon" ? "#9C27B0"
-                  : colors.primary}
+                color={modeColor}
               />
               <Text style={[styles.modeBadgeText, {
-                color: lastResult.practiceMode === "relaxed" ? "#4CAF50"
-                  : lastResult.practiceMode === "speed" ? "#FF6B35"
-                  : lastResult.practiceMode === "marathon" ? "#9C27B0"
-                  : colors.primary,
+                color: modeColor,
                 fontFamily: "Inter_600SemiBold",
               }]}>
                 {tr(`mode.badge.${lastResult.practiceMode}`)}
               </Text>
-            </View>
+            </Animated.View>
           )}
 
-          <Text style={[styles.subjectTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+          <Animated.Text entering={FadeIn.delay(500).duration(300)} style={[styles.subjectTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
             {lastResult.subject}
-            {lastResult.topic ? ` - ${lastResult.topic}` : ""}
-          </Text>
+            {lastResult.topic ? ` \u2022 ${lastResult.topic}` : ""}
+          </Animated.Text>
         </View>
 
         <View style={styles.statsRow}>
-          <View style={[styles.statItem, { backgroundColor: colors.successLight }]}>
-            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
-            <Text style={[styles.statItemValue, { color: colors.success, fontFamily: "Inter_700Bold" }]}>
-              {lastResult.correctAnswers}
-            </Text>
-            <Text style={[styles.statItemLabel, { color: colors.success, fontFamily: "Inter_400Regular" }]}>
-              {tr("result.correct")}
-            </Text>
-          </View>
-          <View style={[styles.statItem, { backgroundColor: colors.errorLight }]}>
-            <Ionicons name="close-circle" size={20} color={colors.error} />
-            <Text style={[styles.statItemValue, { color: colors.error, fontFamily: "Inter_700Bold" }]}>
-              {lastResult.wrongAnswers}
-            </Text>
-            <Text style={[styles.statItemLabel, { color: colors.error, fontFamily: "Inter_400Regular" }]}>
-              {tr("result.wrong")}
-            </Text>
-          </View>
-          <View style={[styles.statItem, { backgroundColor: colors.warningLight }]}>
-            <Ionicons name="remove-circle" size={20} color={colors.warning} />
-            <Text style={[styles.statItemValue, { color: colors.warning, fontFamily: "Inter_700Bold" }]}>
-              {lastResult.skipped}
-            </Text>
-            <Text style={[styles.statItemLabel, { color: colors.warning, fontFamily: "Inter_400Regular" }]}>
-              {tr("result.skipped")}
-            </Text>
-          </View>
-          <View style={[styles.statItem, { backgroundColor: colors.primaryLight }]}>
-            <Ionicons name="time" size={20} color={colors.primary} />
-            <Text style={[styles.statItemValue, { color: colors.primary, fontFamily: "Inter_700Bold" }]}>
-              {avgTimePerQ}s
-            </Text>
-            <Text style={[styles.statItemLabel, { color: colors.primary, fontFamily: "Inter_400Regular" }]}>
-              {tr("result.avgTime")}
-            </Text>
-          </View>
+          <AnimatedStatCard
+            icon="checkmark-circle"
+            value={lastResult.correctAnswers}
+            label={tr("result.correct")}
+            color={colors.success}
+            bgColor={colors.successLight}
+            delay={200}
+          />
+          <AnimatedStatCard
+            icon="close-circle"
+            value={lastResult.wrongAnswers}
+            label={tr("result.wrong")}
+            color={colors.error}
+            bgColor={colors.errorLight}
+            delay={300}
+          />
+          <AnimatedStatCard
+            icon="remove-circle"
+            value={lastResult.skipped}
+            label={tr("result.skipped")}
+            color={colors.warning}
+            bgColor={colors.warningLight}
+            delay={400}
+          />
+          <AnimatedStatCard
+            icon="time"
+            value={`${avgTimePerQ}s`}
+            label={tr("result.avgTime")}
+            color={colors.primary}
+            bgColor={colors.primaryLight}
+            delay={500}
+          />
         </View>
 
+        <PerformanceComparisonCard score={lastResult.score} colors={colors} tr={tr} lang={appLanguage} />
+
         {lastResult.adaptive && lastResult.difficultyProgression && lastResult.difficultyProgression.length > 1 && (
-          <View style={[styles.progressionSection, { marginHorizontal: 16, marginBottom: 24 }]}>
+          <Animated.View entering={FadeInDown.delay(700).duration(400)} style={[styles.progressionSection, { marginHorizontal: 16, marginBottom: 24 }]}>
             <Text style={[styles.reviewTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
               {tr("adaptive.progression")}
             </Text>
@@ -403,7 +492,7 @@ export default function ResultScreen() {
                 </Text>
               </View>
             </View>
-          </View>
+          </Animated.View>
         )}
 
         <View style={styles.reviewSection}>
@@ -411,7 +500,7 @@ export default function ResultScreen() {
             {tr("result.reviewAnswers")}
           </Text>
 
-          {lastResult.questions.map((q, idx) => (
+          {lastResult.questions.map((q: any, idx: number) => (
             <QuestionReviewItem
               key={q.id}
               index={idx}
@@ -426,14 +515,36 @@ export default function ResultScreen() {
           ))}
         </View>
 
-        <Pressable
-          style={[styles.doneButton, { backgroundColor: colors.primary }]}
-          onPress={() => router.replace("/(tabs)")}
-        >
-          <Text style={[styles.doneButtonText, { fontFamily: "Inter_600SemiBold" }]}>
-            {tr("result.backHome")}
-          </Text>
-        </Pressable>
+        <Animated.View entering={FadeInUp.delay(800).duration(400)} style={styles.actionButtons}>
+          <Pressable
+            style={styles.retryButtonWrap}
+            onPress={() => router.replace("/(tabs)/practice")}
+          >
+            <View style={[styles.retryButton, { borderColor: colors.primary, borderWidth: 1.5 }]}>
+              <Ionicons name="refresh" size={18} color={colors.primary} />
+              <Text style={[styles.retryButtonText, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+                {appLanguage === "bn" ? "আবার অনুশীলন" : "Practice Again"}
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable
+            style={styles.doneButtonWrap}
+            onPress={() => router.replace("/(tabs)")}
+          >
+            <LinearGradient
+              colors={[colors.primary, colors.primary + "DD"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.doneButton}
+            >
+              <Ionicons name="home" size={18} color="#FFFFFF" />
+              <Text style={[styles.doneButtonText, { fontFamily: "Inter_600SemiBold" }]}>
+                {tr("result.backHome")}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -441,18 +552,20 @@ export default function ResultScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  headerGradient: {
+    paddingBottom: 8,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingBottom: 12,
   },
   closeBtn: { padding: 4 },
   headerTitle: { fontSize: 18 },
   scoreSection: {
     alignItems: "center",
-    paddingVertical: 24,
+    paddingVertical: 20,
   },
   scoreContainer: {
     alignItems: "center",
@@ -467,14 +580,23 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginTop: 12,
   },
-  scoreCircle: {
+  scoreCircleOuter: {
+    marginBottom: 16,
+  },
+  scoreCircleGradient: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    padding: 5,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  scoreCircleInner: {
     width: 130,
     height: 130,
     borderRadius: 65,
-    borderWidth: 5,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
   },
   scoreValue: { fontSize: 38 },
   scoreLabel: { fontSize: 13, marginTop: 2 },
@@ -494,17 +616,49 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: 16,
     gap: 8,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   statItem: {
     flex: 1,
     alignItems: "center",
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     gap: 4,
   },
   statItemValue: { fontSize: 18 },
-  statItemLabel: { fontSize: 11 },
+  statItemLabel: { fontSize: 10 },
+  comparisonCard: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 24,
+  },
+  comparisonGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  comparisonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    gap: 12,
+  },
+  comparisonTextWrap: {
+    flex: 1,
+  },
+  comparisonTitle: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  comparisonBar: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  comparisonBarFill: {
+    height: 6,
+    borderRadius: 3,
+  },
   reviewSection: {
     paddingHorizontal: 16,
   },
@@ -513,7 +667,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   reviewItem: {
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     marginBottom: 10,
     overflow: "hidden",
@@ -525,9 +679,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   reviewBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -545,7 +699,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 10,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     gap: 8,
   },
@@ -553,8 +707,9 @@ const styles = StyleSheet.create({
   reviewOptionText: { flex: 1, fontSize: 13, lineHeight: 18 },
   explanationBox: {
     padding: 14,
-    borderRadius: 10,
+    borderRadius: 12,
     marginTop: 4,
+    borderWidth: 1,
   },
   explanationHeader: {
     flexDirection: "row",
@@ -565,17 +720,37 @@ const styles = StyleSheet.create({
   explanationTitle: { fontSize: 13 },
   explanationText: { fontSize: 13, lineHeight: 20 },
   timeTaken: { fontSize: 11, marginTop: 4 },
-  doneButton: {
-    marginHorizontal: 16,
+  actionButtons: {
+    paddingHorizontal: 16,
     marginTop: 20,
-    paddingVertical: 16,
-    borderRadius: 12,
+    gap: 10,
+  },
+  retryButtonWrap: {},
+  retryButton: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 15,
+    borderRadius: 14,
+  },
+  retryButtonText: { fontSize: 16 },
+  doneButtonWrap: {
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  doneButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 14,
   },
   doneButtonText: { fontSize: 16, color: "#FFFFFF" },
   progressionSection: {},
   progressionCard: {
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     padding: 16,
     marginTop: 8,

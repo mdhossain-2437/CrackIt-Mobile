@@ -5,10 +5,14 @@ import {
   users,
   examResults,
   userProgress,
+  communityQuestions,
+  studySessions,
   type User,
   type InsertUser,
   type ExamResult,
   type UserProgress,
+  type CommunityQuestion,
+  type StudySession,
 } from "@shared/schema";
 
 const pool = new pg.Pool({
@@ -37,6 +41,12 @@ export interface IStorage {
   upsertProgress(userId: string, subject: string, topic: string, correct: boolean): Promise<void>;
   getLeaderboard(period: "alltime" | "weekly", limit?: number): Promise<LeaderboardEntry[]>;
   getUserRank(userId: string, period: "alltime" | "weekly"): Promise<number | null>;
+  createCommunityQuestion(data: Omit<CommunityQuestion, "id" | "createdAt" | "upvotes" | "downvotes" | "verified">): Promise<CommunityQuestion>;
+  getCommunityQuestions(examType?: string, limit?: number): Promise<CommunityQuestion[]>;
+  voteCommunityQuestion(id: string, direction: "up" | "down"): Promise<void>;
+  saveStudySession(data: Omit<StudySession, "id" | "createdAt">): Promise<StudySession>;
+  getStudySessions(userId: string, days?: number): Promise<StudySession[]>;
+  getStudyStats(userId: string): Promise<{ totalMinutes: number; totalQuestions: number; daysActive: number; avgAccuracy: number }>;
 }
 
 class PgStorage implements IStorage {
@@ -200,6 +210,64 @@ class PgStorage implements IStorage {
       .where(sql`xp > ${myXp}`);
 
     return Number(higherCount[0]?.count ?? 0) + 1;
+  }
+
+  async createCommunityQuestion(data: Omit<CommunityQuestion, "id" | "createdAt" | "upvotes" | "downvotes" | "verified">): Promise<CommunityQuestion> {
+    const [q] = await db.insert(communityQuestions).values(data).returning();
+    return q;
+  }
+
+  async getCommunityQuestions(examType?: string, limit: number = 50): Promise<CommunityQuestion[]> {
+    if (examType) {
+      return db
+        .select()
+        .from(communityQuestions)
+        .where(eq(communityQuestions.examType, examType))
+        .orderBy(desc(communityQuestions.createdAt))
+        .limit(limit);
+    }
+    return db
+      .select()
+      .from(communityQuestions)
+      .orderBy(desc(communityQuestions.createdAt))
+      .limit(limit);
+  }
+
+  async voteCommunityQuestion(id: string, direction: "up" | "down"): Promise<void> {
+    if (direction === "up") {
+      await db.update(communityQuestions)
+        .set({ upvotes: sql`${communityQuestions.upvotes} + 1` })
+        .where(eq(communityQuestions.id, id));
+    } else {
+      await db.update(communityQuestions)
+        .set({ downvotes: sql`${communityQuestions.downvotes} + 1` })
+        .where(eq(communityQuestions.id, id));
+    }
+  }
+
+  async saveStudySession(data: Omit<StudySession, "id" | "createdAt">): Promise<StudySession> {
+    const [session] = await db.insert(studySessions).values(data).returning();
+    return session;
+  }
+
+  async getStudySessions(userId: string, days: number = 30): Promise<StudySession[]> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return db
+      .select()
+      .from(studySessions)
+      .where(and(eq(studySessions.userId, userId), gte(studySessions.date, cutoff.toISOString().split("T")[0])))
+      .orderBy(desc(studySessions.date));
+  }
+
+  async getStudyStats(userId: string): Promise<{ totalMinutes: number; totalQuestions: number; daysActive: number; avgAccuracy: number }> {
+    const sessions = await this.getStudySessions(userId, 365);
+    const totalMinutes = sessions.reduce((sum, s) => sum + Math.round(s.duration / 60), 0);
+    const totalQuestions = sessions.reduce((sum, s) => sum + s.questionsAnswered, 0);
+    const totalCorrect = sessions.reduce((sum, s) => sum + s.correctAnswers, 0);
+    const uniqueDays = new Set(sessions.map(s => s.date)).size;
+    const avgAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+    return { totalMinutes, totalQuestions, daysActive: uniqueDays, avgAccuracy };
   }
 }
 

@@ -259,3 +259,224 @@ export function getAdaptiveInitialQuestion(
 ): Question | null {
   return getNextAdaptiveQuestion(examType, "medium", new Set(), language);
 }
+
+export interface SmartRecommendation {
+  type: "weak_drill" | "spaced_review" | "new_content" | "level_up" | "daily_mix";
+  subject: string;
+  topic: string;
+  accuracy: number;
+  daysSince: number;
+  priority: number;
+  reason: string;
+}
+
+export function getSmartDailyMix(
+  userData: UserData,
+  examType: ExamType,
+  count: number = 10,
+  language?: Language
+): Question[] {
+  let pool = getQuestionsForExamType(examType, language);
+  if (pool.length === 0) pool = getQuestionsForExamType(examType);
+  if (pool.length <= count) return shuffleArray(pool);
+
+  const scored = pool.map((q) => {
+    let score = 1.0;
+    const acc = getTopicAccuracy(userData, q.subject, q.topic);
+    const days = getDaysSinceLastPractice(userData, q.subject, q.topic);
+    const unseen = isTopicUnseen(userData, q.subject, q.topic);
+
+    if (acc >= 0 && acc < 0.5) score += 4.0;
+    else if (acc >= 0.5 && acc < 0.65) score += 2.5;
+    else if (acc >= 0.65 && acc < 0.8) score += 1.0;
+    else if (acc >= 0.8) score += 0.2;
+
+    const forgettingBoost = Math.min(days / 3, 3.0);
+    score += forgettingBoost;
+
+    if (unseen) score += 1.5;
+
+    const rec = getDifficultyRecommendation(userData, q.subject, q.topic);
+    if (q.difficulty === rec) score += 0.8;
+
+    return { question: q, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  const selected: Question[] = [];
+  const usedTopicKeys = new Set<string>();
+
+  const weakSlots = Math.ceil(count * 0.3);
+  const spacedSlots = Math.ceil(count * 0.3);
+  const newSlots = Math.ceil(count * 0.2);
+
+  const weakPool = scored.filter(s => {
+    const acc = getTopicAccuracy(userData, s.question.subject, s.question.topic);
+    return acc >= 0 && acc < 0.6;
+  });
+  for (const s of shuffleArray(weakPool).slice(0, weakSlots)) {
+    const key = `${s.question.subject}::${s.question.topic}`;
+    if (!usedTopicKeys.has(key)) {
+      selected.push(s.question);
+      usedTopicKeys.add(key);
+    }
+  }
+
+  const spacedPool = scored.filter(s => {
+    const key = `${s.question.subject}::${s.question.topic}`;
+    if (usedTopicKeys.has(key)) return false;
+    return getDaysSinceLastPractice(userData, s.question.subject, s.question.topic) >= 3;
+  });
+  for (const s of shuffleArray(spacedPool).slice(0, spacedSlots)) {
+    const key = `${s.question.subject}::${s.question.topic}`;
+    selected.push(s.question);
+    usedTopicKeys.add(key);
+  }
+
+  const newPool = scored.filter(s => {
+    const key = `${s.question.subject}::${s.question.topic}`;
+    if (usedTopicKeys.has(key)) return false;
+    return isTopicUnseen(userData, s.question.subject, s.question.topic);
+  });
+  for (const s of shuffleArray(newPool).slice(0, newSlots)) {
+    selected.push(s.question);
+    usedTopicKeys.add(`${s.question.subject}::${s.question.topic}`);
+  }
+
+  const remaining = count - selected.length;
+  if (remaining > 0) {
+    const ids = new Set(selected.map(q => q.id));
+    const rest = shuffleArray(scored.filter(s => !ids.has(s.question.id))).slice(0, remaining);
+    for (const s of rest) selected.push(s.question);
+  }
+
+  return shuffleArray(selected).slice(0, count);
+}
+
+export function getSmartRecommendations(
+  userData: UserData,
+  examType: ExamType,
+  limit: number = 6
+): SmartRecommendation[] {
+  const recommendations: SmartRecommendation[] = [];
+
+  for (const [key, progress] of Object.entries(userData.topicProgress)) {
+    if (progress.total < 2) continue;
+    const [subject, topic] = key.split("::");
+    if (!subject || !topic) continue;
+
+    const hasQ = QUESTIONS.some(q => q.examType === examType && q.subject === subject && q.topic === topic);
+    if (!hasQ) continue;
+
+    const accuracy = progress.correct / progress.total;
+    const days = getDaysSinceLastPractice(userData, subject, topic);
+
+    if (accuracy < 0.5) {
+      recommendations.push({
+        type: "weak_drill",
+        subject,
+        topic,
+        accuracy: Math.round(accuracy * 100),
+        daysSince: days,
+        priority: (1 - accuracy) * 10 + Math.min(days, 7),
+        reason: accuracy < 0.3 ? "critical" : "needs_work",
+      });
+    } else if (days >= 5 && progress.total >= 3) {
+      recommendations.push({
+        type: "spaced_review",
+        subject,
+        topic,
+        accuracy: Math.round(accuracy * 100),
+        daysSince: days,
+        priority: Math.min(days / 2, 5) + (1 - accuracy) * 3,
+        reason: days >= 7 ? "overdue" : "due_soon",
+      });
+    }
+  }
+
+  const practicedTopics = new Set(Object.keys(userData.topicProgress));
+  const examQuestions = QUESTIONS.filter(q => q.examType === examType);
+  const allTopics = new Set(examQuestions.map(q => `${q.subject}::${q.topic}`));
+
+  for (const topicKey of allTopics) {
+    if (!practicedTopics.has(topicKey)) {
+      const [subject, topic] = topicKey.split("::");
+      if (subject && topic) {
+        recommendations.push({
+          type: "new_content",
+          subject,
+          topic,
+          accuracy: -1,
+          daysSince: 999,
+          priority: 3,
+          reason: "unexplored",
+        });
+      }
+    }
+  }
+
+  const totalAccuracy = userData.totalQuestionsSolved > 0
+    ? userData.totalCorrect / userData.totalQuestionsSolved
+    : 0;
+  if (totalAccuracy >= 0.8 && userData.totalQuestionsSolved >= 50) {
+    recommendations.push({
+      type: "level_up",
+      subject: "General",
+      topic: "All",
+      accuracy: Math.round(totalAccuracy * 100),
+      daysSince: 0,
+      priority: 2,
+      reason: "ready_for_harder",
+    });
+  }
+
+  return recommendations.sort((a, b) => b.priority - a.priority).slice(0, limit);
+}
+
+export function getWeakTopicsDrill(
+  userData: UserData,
+  examType: ExamType,
+  count: number = 10,
+  language?: Language
+): Question[] {
+  const weakTopics = getWeakTopics(userData, examType, 10);
+  if (weakTopics.length === 0) return [];
+
+  let pool = getQuestionsForExamType(examType, language);
+  if (pool.length === 0) pool = getQuestionsForExamType(examType);
+
+  const weakKeys = new Set(weakTopics.map(w => `${w.subject}::${w.topic}`));
+  const weakQuestions = pool.filter(q => weakKeys.has(`${q.subject}::${q.topic}`));
+
+  if (weakQuestions.length <= count) return shuffleArray(weakQuestions);
+  return shuffleArray(weakQuestions).slice(0, count);
+}
+
+export function getPerformanceTrend(
+  userData: UserData,
+  examType: ExamType
+): { improving: string[]; declining: string[]; stable: string[] } {
+  const improving: string[] = [];
+  const declining: string[] = [];
+  const stable: string[] = [];
+
+  for (const [key, progress] of Object.entries(userData.topicProgress)) {
+    if (progress.total < 5) continue;
+    const [subject, topic] = key.split("::");
+    if (!subject || !topic) continue;
+
+    const accuracy = progress.correct / progress.total;
+    const recentCorrect = progress.consecutiveCorrect;
+
+    if (recentCorrect >= 3 && accuracy >= 0.7) {
+      improving.push(`${subject} - ${topic}`);
+    } else if (accuracy < 0.4 && recentCorrect === 0) {
+      declining.push(`${subject} - ${topic}`);
+    } else {
+      stable.push(`${subject} - ${topic}`);
+    }
+  }
+
+  return { improving, declining, stable };
+}

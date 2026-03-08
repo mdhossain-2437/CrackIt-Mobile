@@ -51,6 +51,39 @@ export const userProgress = pgTable("user_progress", {
   consecutiveCorrect: integer("consecutive_correct").notNull().default(0),
 });
 
+export const communityQuestions = pgTable("community_questions", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  authorName: text("author_name").notNull(),
+  examType: text("exam_type").notNull(),
+  subject: text("subject").notNull(),
+  topic: text("topic").notNull(),
+  difficulty: text("difficulty").notNull().default("medium"),
+  language: text("language").notNull().default("en"),
+  question: text("question").notNull(),
+  options: text("options").notNull(),
+  correctAnswer: integer("correct_answer").notNull(),
+  explanation: text("explanation").notNull().default(""),
+  upvotes: integer("upvotes").notNull().default(0),
+  downvotes: integer("downvotes").notNull().default(0),
+  verified: integer("verified").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const studySessions = pgTable("study_sessions", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  date: text("date").notNull(),
+  duration: integer("duration").notNull().default(0),
+  questionsAnswered: integer("questions_answered").notNull().default(0),
+  correctAnswers: integer("correct_answers").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   name: true,
   email: true,
@@ -78,3 +111,5 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type ExamResult = typeof examResults.$inferSelect;
 export type UserProgress = typeof userProgress.$inferSelect;
+export type CommunityQuestion = typeof communityQuestions.$inferSelect;
+export type StudySession = typeof studySessions.$inferSelect;

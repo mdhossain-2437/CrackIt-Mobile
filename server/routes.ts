@@ -237,7 +237,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/chat", async (req, res) => {
     try {
-      const { message, examType, educationLevel, language = "en", history = [] } = req.body;
+      const {
+        message,
+        examType,
+        educationLevel,
+        language = "en",
+        history = [],
+        performanceContext,
+      } = req.body;
 
       if (!message) {
         return res.status(400).json({ error: "Message is required" });
@@ -247,22 +254,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? "Respond in Bengali (বাংলা). Use proper Bengali script."
         : "Respond in English.";
 
-      const systemPrompt = `You are CrackIt AI, an expert exam preparation tutor for Bangladesh students. You help with all exam types: BCS, Medical, Engineering, University Admission, SSC, HSC, JSC, PSC, Madrasah exams.
+      let performanceSection = "";
+      if (performanceContext) {
+        const { totalSolved, totalCorrect, streak, xp, weakTopics, recentExams, subjectAccuracies } = performanceContext;
+        const overallAccuracy = totalSolved > 0 ? Math.round((totalCorrect / totalSolved) * 100) : 0;
 
-Current context:
-- Student's exam type: ${examType || "general"}
+        performanceSection = `
+Student Performance Profile:
+- Total questions solved: ${totalSolved || 0}
+- Overall accuracy: ${overallAccuracy}%
+- Current streak: ${streak || 0} days
+- XP earned: ${xp || 0}`;
+
+        if (weakTopics && weakTopics.length > 0) {
+          performanceSection += `\n- Weak topics (need improvement): ${weakTopics.map((t: any) => `${t.subject}/${t.topic} (${Math.round(t.accuracy * 100)}%)`).join(", ")}`;
+        }
+
+        if (recentExams && recentExams.length > 0) {
+          performanceSection += `\n- Recent exam scores: ${recentExams.map((e: any) => `${e.subject}: ${e.score}%`).join(", ")}`;
+        }
+
+        if (subjectAccuracies && Object.keys(subjectAccuracies).length > 0) {
+          const subjectLines = Object.entries(subjectAccuracies).map(([subj, acc]: [string, any]) => `${subj}: ${Math.round(acc * 100)}%`).join(", ");
+          performanceSection += `\n- Subject-wise accuracy: ${subjectLines}`;
+        }
+      }
+
+      const systemPrompt = `You are CrackIt AI Study Coach — a personal, expert exam preparation tutor for Bangladesh students. You are warm, encouraging, and deeply knowledgeable. You help with: BCS, Medical, Engineering, University Admission, SSC, HSC, JSC, PSC, Madrasah exams.
+
+Current student context:
+- Exam type: ${examType || "general"}
 - Education level: ${educationLevel || "not specified"}
+${performanceSection}
 
-Your capabilities:
-- Explain any topic clearly with examples
-- Generate practice questions on demand
-- Provide study tips and strategies
-- Help with Bangladesh curriculum content (Bangla grammar, literature, history, science, math, etc.)
-- Give personalized study recommendations
+Your capabilities as a Study Coach:
+1. PERSONALIZED GUIDANCE: Use the student's performance data to give targeted advice. If they have weak topics, proactively suggest reviewing them. Reference their scores and progress.
+2. EXPLAIN CONCEPTS: Explain any topic with clear examples, analogies, and step-by-step breakdowns.
+3. GENERATE PRACTICE QUESTIONS: When asked, create MCQs formatted as:
+   Q1. [Question text]
+   A) Option 1
+   B) Option 2
+   C) Option 3
+   D) Option 4
+   Answer: [Letter]
+   Explanation: [Why this is correct]
+4. STUDY PLAN CREATION: Create structured study plans (daily/weekly) tailored to the student's exam type and weak areas.
+5. QUESTION EXPLANATION: If a student shares a question or question ID, provide a detailed explanation with the reasoning process.
+6. MOTIVATIONAL COACHING: Celebrate streaks, encourage consistency, and provide motivational tips.
 
-${langInstruction}
-
-Keep responses concise but thorough. Use bullet points and clear formatting. If asked for practice questions, format them as numbered MCQs with options A-D.`;
+Guidelines:
+- ${langInstruction}
+- Keep responses well-structured with bullet points, numbered lists, and clear sections.
+- Be concise but thorough. Aim for helpful, actionable responses.
+- If the student seems to struggle with a topic, offer to explain fundamentals first.
+- When generating questions, always include explanations.
+- Reference the student's actual performance data when giving recommendations.`;
 
       const messages: any[] = [
         { role: "system", content: systemPrompt },
@@ -473,6 +519,175 @@ Return ONLY a valid JSON array with this exact format, no other text:
     } catch (error: any) {
       console.error("Leaderboard error:", error);
       res.status(500).json({ error: "Failed to fetch leaderboard" });
+    }
+  });
+
+  app.post("/api/questions/create", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const { examType, subject, topic, difficulty, language, question, options, correctAnswer, explanation } = req.body;
+
+      if (!examType || !subject || !topic || !question || !options || correctAnswer === undefined) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      if (!Array.isArray(options) || options.length !== 4) {
+        return res.status(400).json({ error: "Exactly 4 options are required" });
+      }
+
+      if (correctAnswer < 0 || correctAnswer > 3) {
+        return res.status(400).json({ error: "correctAnswer must be 0-3" });
+      }
+
+      const created = await storage.createCommunityQuestion({
+        userId,
+        authorName: user.name,
+        examType,
+        subject,
+        topic,
+        difficulty: difficulty || "medium",
+        language: language || "en",
+        question,
+        options: JSON.stringify(options),
+        correctAnswer,
+        explanation: explanation || "",
+      });
+
+      res.json({ question: created });
+    } catch (error: any) {
+      console.error("Create community question error:", error);
+      res.status(500).json({ error: "Failed to create question" });
+    }
+  });
+
+  app.get("/api/questions/community", async (req, res) => {
+    try {
+      const examType = req.query.examType as string | undefined;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+
+      const questions = await storage.getCommunityQuestions(examType, limit);
+
+      const formatted = questions.map((q) => ({
+        ...q,
+        options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+      }));
+
+      res.json({ questions: formatted });
+    } catch (error: any) {
+      console.error("Get community questions error:", error);
+      res.status(500).json({ error: "Failed to fetch community questions" });
+    }
+  });
+
+  app.post("/api/questions/vote", requireAuth, async (req, res) => {
+    try {
+      const { questionId, direction } = req.body;
+
+      if (!questionId || !["up", "down"].includes(direction)) {
+        return res.status(400).json({ error: "Invalid vote parameters" });
+      }
+
+      await storage.voteCommunityQuestion(questionId, direction);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Vote error:", error);
+      res.status(500).json({ error: "Failed to vote" });
+    }
+  });
+
+  app.post("/api/study-session", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { duration, questionsAnswered, correctAnswers } = req.body;
+      const today = new Date().toISOString().split("T")[0];
+
+      const session = await storage.saveStudySession({
+        userId,
+        date: today,
+        duration: duration || 0,
+        questionsAnswered: questionsAnswered || 0,
+        correctAnswers: correctAnswers || 0,
+      });
+
+      res.json({ session });
+    } catch (error: any) {
+      console.error("Study session error:", error);
+      res.status(500).json({ error: "Failed to save study session" });
+    }
+  });
+
+  app.get("/api/study-sessions", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+      const sessions = await storage.getStudySessions(userId, days);
+      res.json({ sessions });
+    } catch (error: any) {
+      console.error("Get study sessions error:", error);
+      res.status(500).json({ error: "Failed to get study sessions" });
+    }
+  });
+
+  app.get("/api/study-stats", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const stats = await storage.getStudyStats(userId);
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Study stats error:", error);
+      res.status(500).json({ error: "Failed to get study stats" });
+    }
+  });
+
+  app.get("/api/recommendations", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ error: "User not found" });
+
+      const progress = await storage.getProgress(userId);
+      const examHistory = await storage.getExamResults(userId, 20);
+
+      const weakTopics = progress
+        .filter(p => p.total >= 3 && (p.correct / p.total) < 0.6)
+        .sort((a, b) => (a.correct / a.total) - (b.correct / b.total))
+        .slice(0, 5)
+        .map(p => ({ subject: p.subject, topic: p.topic, accuracy: Math.round((p.correct / p.total) * 100), total: p.total }));
+
+      const staleTopics = progress
+        .filter(p => {
+          if (!p.lastPracticed) return false;
+          const daysSince = (Date.now() - new Date(p.lastPracticed).getTime()) / (1000 * 60 * 60 * 24);
+          return daysSince > 3;
+        })
+        .sort((a, b) => new Date(a.lastPracticed).getTime() - new Date(b.lastPracticed).getTime())
+        .slice(0, 5)
+        .map(p => ({ subject: p.subject, topic: p.topic, lastPracticed: p.lastPracticed }));
+
+      const recentScores = examHistory.slice(0, 10).map(e => e.score);
+      const avgRecentScore = recentScores.length > 0 ? Math.round(recentScores.reduce((a, b) => a + b, 0) / recentScores.length) : 0;
+      const trend = recentScores.length >= 3
+        ? (recentScores.slice(0, 3).reduce((a, b) => a + b, 0) / 3 > recentScores.slice(-3).reduce((a, b) => a + b, 0) / 3 ? "improving" : "declining")
+        : "neutral";
+
+      res.json({
+        weakTopics,
+        staleTopics,
+        avgRecentScore,
+        trend,
+        educationLevel: user.educationLevel,
+        examType: user.examType,
+        totalSolved: user.totalQuestionsSolved,
+        xp: user.xp,
+      });
+    } catch (error: any) {
+      console.error("Recommendations error:", error);
+      res.status(500).json({ error: "Failed to get recommendations" });
     }
   });
 

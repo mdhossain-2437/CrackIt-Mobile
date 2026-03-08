@@ -5,6 +5,7 @@ import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
+import Animated, { useAnimatedStyle, withSpring, useSharedValue, withTiming } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 
@@ -36,6 +37,27 @@ function NativeTabLayout() {
   );
 }
 
+function AnimatedTabIcon({ name, focusedName, color, focused, size }: { name: string; focusedName: string; color: string; focused: boolean; size: number }) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  React.useEffect(() => {
+    if (focused) {
+      scale.value = withSpring(1.15, { damping: 12, stiffness: 200 });
+    } else {
+      scale.value = withTiming(1, { duration: 200 });
+    }
+  }, [focused]);
+
+  return (
+    <Animated.View style={animStyle}>
+      <Ionicons name={(focused ? focusedName : name) as any} size={size} color={color} />
+    </Animated.View>
+  );
+}
+
 function ClassicTabLayout() {
   const colorScheme = useColorScheme();
   const { tr } = useApp();
@@ -48,30 +70,39 @@ function ClassicTabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: theme.tint,
+        tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.tabIconDefault,
+        tabBarShowLabel: true,
         tabBarLabelStyle: {
-          fontFamily: "Inter_500Medium",
+          fontFamily: "Inter_600SemiBold",
           fontSize: 10,
+          marginTop: -2,
         },
         tabBarStyle: {
           position: "absolute" as const,
-          backgroundColor: isIOS ? "transparent" : isDark ? "#121212" : "#FFFFFF",
-          borderTopWidth: isWeb ? 1 : 0,
-          borderTopColor: theme.border,
+          backgroundColor: isIOS ? "transparent" : theme.tabBarBg,
+          borderTopWidth: 0,
           elevation: 0,
           ...(isWeb ? { height: 84 } : {}),
+          ...(!isIOS && !isWeb ? {
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            boxShadow: `0px -2px 20px ${theme.shadow}`,
+          } : {}),
         },
         tabBarBackground: () =>
           isIOS ? (
             <BlurView
-              intensity={100}
+              intensity={80}
               tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFill}
+              style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" }]}
             />
           ) : isWeb ? (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "#121212" : "#FFFFFF" }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.tabBarBg, borderTopWidth: 1, borderTopColor: theme.tabBarBorder }]} />
           ) : null,
+        tabBarItemStyle: {
+          paddingVertical: 4,
+        },
       }}
     >
       <Tabs.Screen
@@ -79,7 +110,7 @@ function ClassicTabLayout() {
         options={{
           title: tr("nav.home"),
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "home" : "home-outline"} size={22} color={color} />
+            <AnimatedTabIcon name="home-outline" focusedName="home" color={color} focused={focused} size={23} />
           ),
         }}
       />
@@ -88,7 +119,7 @@ function ClassicTabLayout() {
         options={{
           title: tr("nav.practice"),
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "book" : "book-outline"} size={22} color={color} />
+            <AnimatedTabIcon name="book-outline" focusedName="book" color={color} focused={focused} size={23} />
           ),
         }}
       />
@@ -97,7 +128,7 @@ function ClassicTabLayout() {
         options={{
           title: tr("nav.ai"),
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "sparkles" : "sparkles-outline"} size={22} color={color} />
+            <AnimatedTabIcon name="sparkles-outline" focusedName="sparkles" color={color} focused={focused} size={23} />
           ),
         }}
       />
@@ -106,7 +137,7 @@ function ClassicTabLayout() {
         options={{
           title: tr("nav.analytics"),
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "bar-chart" : "bar-chart-outline"} size={22} color={color} />
+            <AnimatedTabIcon name="bar-chart-outline" focusedName="bar-chart" color={color} focused={focused} size={23} />
           ),
         }}
       />
@@ -115,7 +146,7 @@ function ClassicTabLayout() {
         options={{
           title: tr("nav.profile"),
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "person" : "person-outline"} size={22} color={color} />
+            <AnimatedTabIcon name="person-outline" focusedName="person" color={color} focused={focused} size={23} />
           ),
         }}
       />

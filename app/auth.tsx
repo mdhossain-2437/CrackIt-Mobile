@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,10 +9,23 @@ import {
   ScrollView,
   Platform,
   KeyboardAvoidingView,
+  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  FadeInRight,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  interpolate,
+  Easing,
+} from "react-native-reanimated";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
 import { apiRequest } from "@/lib/query-client";
@@ -22,14 +35,74 @@ import type { Language } from "@/lib/i18n";
 
 type AuthMode = "login" | "register";
 
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 const EDUCATION_LEVELS = [
-  { id: "primary", labelEn: "Primary (Class 1-5)", labelBn: "প্রাথমিক (১ম-৫ম শ্রেণি)", icon: "school-outline" },
-  { id: "junior", labelEn: "Junior (Class 6-8)", labelBn: "জুনিয়র (৬ষ্ঠ-৮ম শ্রেণি)", icon: "book-outline" },
-  { id: "ssc", labelEn: "SSC (Class 9-10)", labelBn: "এসএসসি (৯ম-১০ম শ্রেণি)", icon: "library-outline" },
-  { id: "hsc", labelEn: "HSC (Class 11-12)", labelBn: "এইচএসসি (১১শ-১২শ শ্রেণি)", icon: "school" },
-  { id: "university", labelEn: "University Admission", labelBn: "বিশ্ববিদ্যালয় ভর্তি", icon: "business-outline" },
-  { id: "job", labelEn: "Job Preparation", labelBn: "চাকরি প্রস্তুতি", icon: "briefcase-outline" },
+  { id: "primary", labelEn: "Primary (Class 1-5)", labelBn: "প্রাথমিক (১ম-৫ম শ্রেণি)", icon: "school-outline", color: "#4CAF50" },
+  { id: "junior", labelEn: "Junior (Class 6-8)", labelBn: "জুনিয়র (৬ষ্ঠ-৮ম শ্রেণি)", icon: "book-outline", color: "#2196F3" },
+  { id: "ssc", labelEn: "SSC (Class 9-10)", labelBn: "এসএসসি (৯ম-১০ম শ্রেণি)", icon: "library-outline", color: "#9C27B0" },
+  { id: "hsc", labelEn: "HSC (Class 11-12)", labelBn: "এইচএসসি (১১শ-১২শ শ্রেণি)", icon: "school", color: "#FF5722" },
+  { id: "university", labelEn: "University Admission", labelBn: "বিশ্ববিদ্যালয় ভর্তি", icon: "business-outline", color: "#E91E63" },
+  { id: "job", labelEn: "Job Preparation", labelBn: "চাকরি প্রস্তুতি", icon: "briefcase-outline", color: "#FF9800" },
 ];
+
+function StepIndicator({ currentStep, totalSteps, colors }: { currentStep: number; totalSteps: number; colors: any }) {
+  return (
+    <View style={indicatorStyles.container}>
+      {Array.from({ length: totalSteps }, (_, i) => {
+        const isActive = i + 1 <= currentStep;
+        return (
+          <React.Fragment key={i}>
+            <View style={[indicatorStyles.dot, { backgroundColor: isActive ? "#FFFFFF" : "#FFFFFF40" }]}>
+              {isActive && i + 1 < currentStep && (
+                <Ionicons name="checkmark" size={12} color={colors.primary} />
+              )}
+              {(!isActive || i + 1 === currentStep) && (
+                <Text style={[indicatorStyles.dotText, { color: isActive ? colors.primary : "#FFFFFF60", fontFamily: "Inter_600SemiBold" }]}>
+                  {i + 1}
+                </Text>
+              )}
+            </View>
+            {i < totalSteps - 1 && (
+              <View style={[indicatorStyles.line, { backgroundColor: isActive ? "#FFFFFF80" : "#FFFFFF20" }]} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+function EducationCard({ level, isSelected, onPress, language, index }: { level: typeof EDUCATION_LEVELS[0]; isSelected: boolean; onPress: () => void; language: string; index: number }) {
+  const colors = useColors();
+  return (
+    <Animated.View entering={FadeInDown.delay(index * 60).duration(300)}>
+      <Pressable
+        style={[edStyles.card, {
+          backgroundColor: isSelected ? level.color + "15" : colors.surface,
+          borderColor: isSelected ? level.color : colors.borderLight,
+          borderWidth: isSelected ? 2 : 1,
+        }]}
+        onPress={onPress}
+      >
+        <View style={[edStyles.iconWrap, { backgroundColor: level.color + "18" }]}>
+          <Ionicons name={level.icon as any} size={22} color={level.color} />
+        </View>
+        <Text style={[edStyles.label, {
+          color: isSelected ? level.color : colors.text,
+          fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_500Medium",
+        }]}>
+          {language === "bn" ? level.labelBn : level.labelEn}
+        </Text>
+        {isSelected && (
+          <View style={[edStyles.checkWrap, { backgroundColor: level.color }]}>
+            <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+          </View>
+        )}
+      </Pressable>
+    </Animated.View>
+  );
+}
 
 export default function AuthScreen() {
   const colors = useColors();
@@ -51,6 +124,12 @@ export default function AuthScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const tr = (key: string) => t(key, selectedLanguage);
+
+  const slideAnim = useSharedValue(0);
+
+  useEffect(() => {
+    slideAnim.value = withSpring(step === 2 ? 1 : 0, { damping: 20, stiffness: 120 });
+  }, [step]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -119,346 +198,480 @@ export default function AuthScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
-        style={[styles.container, { backgroundColor: colors.background }]}
-        contentContainerStyle={{ paddingTop: topInset + 20, paddingBottom: bottomInset + 40, paddingHorizontal: 24 }}
+        style={[styles.container]}
+        contentContainerStyle={{ flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <View style={[styles.logoBadge, { backgroundColor: colors.primary }]}>
-            <Ionicons name="flash" size={36} color="#FFFFFF" />
+        <LinearGradient
+          colors={[colors.primary, colors.primaryDark, "#0D47A1"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={[styles.gradientBg, { paddingTop: topInset }]}
+        >
+          <View style={styles.topBar}>
+            <Pressable onPress={handleSkip} style={styles.skipTopBtn}>
+              <Text style={[styles.skipTopText, { fontFamily: "Inter_500Medium" }]}>
+                {tr("auth.skipLogin")}
+              </Text>
+            </Pressable>
           </View>
-          <Text style={[styles.title, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-            {tr("app.name")}
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            {tr("app.tagline")}
-          </Text>
-        </View>
 
-        <View style={styles.langRow}>
-          {(["en", "bn"] as Language[]).map((lang) => {
-            const isSelected = selectedLanguage === lang;
-            return (
-              <Pressable
-                key={lang}
-                style={[styles.langChip, { backgroundColor: isSelected ? colors.primary : colors.surface, borderColor: isSelected ? colors.primary : colors.border }]}
-                onPress={() => setSelectedLanguage(lang)}
-              >
-                <Text style={{ fontSize: 16 }}>{lang === "en" ? "🇬🇧" : "🇧🇩"}</Text>
-                <Text style={[styles.langChipText, { color: isSelected ? "#FFF" : colors.text, fontFamily: "Inter_500Medium" }]}>
-                  {lang === "en" ? "EN" : "বাং"}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.modeToggle}>
-          <Pressable
-            style={[styles.modeBtn, mode === "login" && { backgroundColor: colors.primary }]}
-            onPress={() => { setMode("login"); setStep(1); setError(""); }}
-          >
-            <Text style={[styles.modeBtnText, { color: mode === "login" ? "#FFF" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
-              {tr("auth.login")}
+          <View style={styles.logoSection}>
+            <View style={styles.logoBadge}>
+              <Ionicons name="flash" size={32} color={colors.primary} />
+            </View>
+            <Text style={[styles.logoTitle, { fontFamily: "Inter_700Bold" }]}>
+              {tr("app.name")}
             </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.modeBtn, mode === "register" && { backgroundColor: colors.primary }]}
-            onPress={() => { setMode("register"); setStep(1); setError(""); }}
-          >
-            <Text style={[styles.modeBtnText, { color: mode === "register" ? "#FFF" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
-              {tr("auth.register")}
+            <Text style={[styles.logoSubtitle, { fontFamily: "Inter_400Regular" }]}>
+              {tr("app.tagline")}
             </Text>
-          </Pressable>
-        </View>
+          </View>
 
-        {mode === "login" && (
-          <>
-            <View style={[styles.inputWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
-              <TextInput
-                style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
-                placeholder={tr("auth.email")}
-                placeholderTextColor={colors.textTertiary}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-            </View>
-            <View style={[styles.inputWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} />
-              <TextInput
-                style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
-                placeholder={tr("auth.password")}
-                placeholderTextColor={colors.textTertiary}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <Pressable onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textSecondary} />
-              </Pressable>
-            </View>
-          </>
-        )}
-
-        {mode === "register" && step === 1 && (
-          <>
-            <View style={[styles.inputWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
-              <TextInput
-                style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
-                placeholder={tr("auth.name")}
-                placeholderTextColor={colors.textTertiary}
-                value={name}
-                onChangeText={setName}
-              />
-            </View>
-            <View style={[styles.inputWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
-              <TextInput
-                style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
-                placeholder={tr("auth.email")}
-                placeholderTextColor={colors.textTertiary}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-            </View>
-            <View style={[styles.inputWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} />
-              <TextInput
-                style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
-                placeholder={tr("auth.password")}
-                placeholderTextColor={colors.textTertiary}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <Pressable onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textSecondary} />
-              </Pressable>
-            </View>
-          </>
-        )}
-
-        {mode === "register" && step === 2 && (
-          <>
-            <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-              {tr("auth.selectLevel")}
-            </Text>
-            {EDUCATION_LEVELS.map((level) => {
-              const isSelected = educationLevel === level.id;
+          <View style={styles.langPills}>
+            {(["en", "bn"] as Language[]).map((lang) => {
+              const isSelected = selectedLanguage === lang;
               return (
                 <Pressable
-                  key={level.id}
-                  style={[styles.levelItem, {
-                    backgroundColor: isSelected ? colors.primaryLight : colors.surface,
-                    borderColor: isSelected ? colors.primary : colors.border,
-                  }]}
-                  onPress={() => setEducationLevel(level.id)}
+                  key={lang}
+                  style={[styles.langPill, { backgroundColor: isSelected ? "#FFFFFF" : "#FFFFFF20", borderColor: isSelected ? "#FFFFFF" : "#FFFFFF40" }]}
+                  onPress={() => setSelectedLanguage(lang)}
                 >
-                  <Ionicons
-                    name={level.icon as any}
-                    size={22}
-                    color={isSelected ? colors.primary : colors.textSecondary}
-                  />
-                  <Text style={[styles.levelText, {
-                    color: isSelected ? colors.primary : colors.text,
-                    fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_400Regular",
-                  }]}>
-                    {selectedLanguage === "bn" ? level.labelBn : level.labelEn}
+                  <Text style={[styles.langPillText, { color: isSelected ? colors.primary : "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}>
+                    {lang === "en" ? "EN" : "বাং"}
                   </Text>
-                  {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                 </Pressable>
               );
             })}
-
-            <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold", marginTop: 20 }]}>
-              {tr("auth.selectExam")}
-            </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.examChipsRow}>
-              {EXAM_TYPES.map((exam) => {
-                const isSelected = selectedExamType === exam.id;
-                return (
-                  <Pressable
-                    key={exam.id}
-                    style={[styles.examChip, {
-                      backgroundColor: isSelected ? colors.primary : colors.surface,
-                      borderColor: isSelected ? colors.primary : colors.border,
-                    }]}
-                    onPress={() => setSelectedExamType(exam.id)}
-                  >
-                    <Text style={[styles.examChipText, {
-                      color: isSelected ? "#FFF" : colors.text,
-                      fontFamily: "Inter_500Medium",
-                    }]}>
-                      {selectedLanguage === "bn" ? exam.nameBn : exam.name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </>
-        )}
-
-        {error ? (
-          <View style={[styles.errorBox, { backgroundColor: colors.errorLight }]}>
-            <Ionicons name="alert-circle" size={18} color={colors.error} />
-            <Text style={[styles.errorText, { color: colors.error, fontFamily: "Inter_500Medium" }]}>
-              {error}
-            </Text>
           </View>
-        ) : null}
 
-        <Pressable
-          style={[styles.submitBtn, { backgroundColor: isLoading ? colors.border : colors.primary }]}
-          onPress={handleSubmit}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>
-              {mode === "login"
-                ? tr("auth.login")
-                : step === 1
-                ? tr("auth.next")
-                : tr("auth.createAccount")}
-            </Text>
+          {mode === "register" && (
+            <StepIndicator currentStep={step} totalSteps={2} colors={colors} />
           )}
-        </Pressable>
+        </LinearGradient>
 
-        {mode === "register" && step === 2 && (
+        <View style={[styles.formContainer, { backgroundColor: colors.background, paddingBottom: bottomInset + 20 }]}>
+          <View style={[styles.modeToggle, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <Pressable
+              style={[styles.modeBtn, mode === "login" && styles.modeBtnActive, mode === "login" && { backgroundColor: colors.primary }]}
+              onPress={() => { setMode("login"); setStep(1); setError(""); }}
+            >
+              <Ionicons name="log-in-outline" size={18} color={mode === "login" ? "#FFF" : colors.textSecondary} />
+              <Text style={[styles.modeBtnText, { color: mode === "login" ? "#FFF" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
+                {tr("auth.login")}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modeBtn, mode === "register" && styles.modeBtnActive, mode === "register" && { backgroundColor: colors.primary }]}
+              onPress={() => { setMode("register"); setStep(1); setError(""); }}
+            >
+              <Ionicons name="person-add-outline" size={18} color={mode === "register" ? "#FFF" : colors.textSecondary} />
+              <Text style={[styles.modeBtnText, { color: mode === "register" ? "#FFF" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
+                {tr("auth.register")}
+              </Text>
+            </Pressable>
+          </View>
+
+          {mode === "login" && (
+            <Animated.View entering={FadeInDown.duration(300)}>
+              <View style={[styles.inputGroup, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+                <View style={styles.inputRow}>
+                  <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
+                    placeholder={tr("auth.email")}
+                    placeholderTextColor={colors.textTertiary}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                  />
+                </View>
+                <View style={[styles.inputDivider, { backgroundColor: colors.borderLight }]} />
+                <View style={styles.inputRow}>
+                  <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
+                    placeholder={tr("auth.password")}
+                    placeholderTextColor={colors.textTertiary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <Pressable onPress={() => setShowPassword(!showPassword)}>
+                    <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+              </View>
+            </Animated.View>
+          )}
+
+          {mode === "register" && step === 1 && (
+            <Animated.View entering={FadeInDown.duration(300)}>
+              <View style={[styles.inputGroup, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+                <View style={styles.inputRow}>
+                  <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
+                    placeholder={tr("auth.name")}
+                    placeholderTextColor={colors.textTertiary}
+                    value={name}
+                    onChangeText={setName}
+                  />
+                </View>
+                <View style={[styles.inputDivider, { backgroundColor: colors.borderLight }]} />
+                <View style={styles.inputRow}>
+                  <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
+                    placeholder={tr("auth.email")}
+                    placeholderTextColor={colors.textTertiary}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                  />
+                </View>
+                <View style={[styles.inputDivider, { backgroundColor: colors.borderLight }]} />
+                <View style={styles.inputRow}>
+                  <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text, fontFamily: "Inter_400Regular" }]}
+                    placeholder={tr("auth.password")}
+                    placeholderTextColor={colors.textTertiary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <Pressable onPress={() => setShowPassword(!showPassword)}>
+                    <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+              </View>
+            </Animated.View>
+          )}
+
+          {mode === "register" && step === 2 && (
+            <Animated.View entering={FadeInRight.duration(300)}>
+              <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                {tr("auth.selectLevel")}
+              </Text>
+              {EDUCATION_LEVELS.map((level, idx) => (
+                <EducationCard
+                  key={level.id}
+                  level={level}
+                  isSelected={educationLevel === level.id}
+                  onPress={() => setEducationLevel(level.id)}
+                  language={selectedLanguage}
+                  index={idx}
+                />
+              ))}
+
+              <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: "Inter_600SemiBold", marginTop: 20 }]}>
+                {tr("auth.selectExam")}
+              </Text>
+              <View style={styles.examChipsWrap}>
+                {EXAM_TYPES.map((exam) => {
+                  const isSelected = selectedExamType === exam.id;
+                  return (
+                    <Pressable
+                      key={exam.id}
+                      style={[styles.examChip, {
+                        backgroundColor: isSelected ? colors.primary : colors.surface,
+                        borderColor: isSelected ? colors.primary : colors.borderLight,
+                      }]}
+                      onPress={() => setSelectedExamType(exam.id)}
+                    >
+                      <Text style={[styles.examChipText, {
+                        color: isSelected ? "#FFF" : colors.text,
+                        fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_500Medium",
+                      }]}>
+                        {selectedLanguage === "bn" ? exam.nameBn : exam.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Animated.View>
+          )}
+
+          {error ? (
+            <Animated.View entering={FadeInDown.duration(200)} style={[styles.errorBox, { backgroundColor: colors.errorLight }]}>
+              <Ionicons name="alert-circle" size={18} color={colors.error} />
+              <Text style={[styles.errorText, { color: colors.error, fontFamily: "Inter_500Medium" }]}>
+                {error}
+              </Text>
+            </Animated.View>
+          ) : null}
+
           <Pressable
-            style={[styles.backBtn, { borderColor: colors.border }]}
-            onPress={() => setStep(1)}
+            style={({ pressed }) => [styles.submitBtn, { backgroundColor: isLoading ? colors.border : colors.primary, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+            onPress={handleSubmit}
+            disabled={isLoading}
           >
-            <Ionicons name="arrow-back" size={18} color={colors.textSecondary} />
-            <Text style={[styles.backBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
-              {tr("auth.back")}
-            </Text>
+            {isLoading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <View style={styles.submitBtnContent}>
+                <Text style={[styles.submitBtnText, { fontFamily: "Inter_600SemiBold" }]}>
+                  {mode === "login"
+                    ? tr("auth.login")
+                    : step === 1
+                    ? tr("auth.next")
+                    : tr("auth.createAccount")}
+                </Text>
+                <Ionicons name={mode === "login" ? "log-in-outline" : step === 1 ? "arrow-forward" : "checkmark"} size={20} color="#FFFFFF" />
+              </View>
+            )}
           </Pressable>
-        )}
 
-        <Pressable style={styles.skipBtn} onPress={handleSkip}>
-          <Text style={[styles.skipBtnText, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-            {tr("auth.skipLogin")}
-          </Text>
-        </Pressable>
+          {mode === "register" && step === 2 && (
+            <Pressable
+              style={[styles.backBtn, { borderColor: colors.borderLight }]}
+              onPress={() => setStep(1)}
+            >
+              <Ionicons name="arrow-back" size={18} color={colors.textSecondary} />
+              <Text style={[styles.backBtnText, { color: colors.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                {tr("auth.back")}
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { alignItems: "center", marginBottom: 24 },
-  logoBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
+const indicatorStyles = StyleSheet.create({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 16,
+    marginBottom: 8,
+    gap: 0,
+  },
+  dot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
   },
-  title: { fontSize: 32, marginBottom: 6 },
-  subtitle: { fontSize: 14, textAlign: "center" },
-  langRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 10,
-    marginBottom: 20,
+  dotText: {
+    fontSize: 12,
   },
-  langChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
+  line: {
+    width: 40,
+    height: 2,
+    borderRadius: 1,
   },
-  langChipText: { fontSize: 14 },
-  modeToggle: {
-    flexDirection: "row",
-    borderRadius: 12,
-    overflow: "hidden",
-    marginBottom: 24,
-  },
-  modeBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  modeBtnText: { fontSize: 15 },
-  inputWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 12,
-  },
-  input: { flex: 1, fontSize: 15 },
-  sectionTitle: { fontSize: 16, marginBottom: 12, marginTop: 4 },
-  levelItem: {
+});
+
+const edStyles = StyleSheet.create({
+  card: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 14,
     marginBottom: 8,
   },
-  levelText: { flex: 1, fontSize: 14 },
-  examChipsRow: { gap: 8, marginBottom: 8 },
+  iconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  label: {
+    flex: 1,
+    fontSize: 14,
+  },
+  checkWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+});
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  gradientBg: {
+    paddingBottom: 32,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+  },
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  skipTopBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF18",
+  },
+  skipTopText: {
+    color: "#FFFFFFCC",
+    fontSize: 12,
+  },
+  logoSection: {
+    alignItems: "center",
+    marginTop: 20,
+    marginBottom: 16,
+  },
+  logoBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  logoTitle: {
+    fontSize: 28,
+    color: "#FFFFFF",
+    marginBottom: 4,
+  },
+  logoSubtitle: {
+    fontSize: 13,
+    color: "#FFFFFFBB",
+    textAlign: "center",
+    paddingHorizontal: 40,
+  },
+  langPills: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 14,
+  },
+  langPill: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  langPillText: {
+    fontSize: 14,
+  },
+  formContainer: {
+    marginTop: -16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  modeToggle: {
+    flexDirection: "row",
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 4,
+    marginBottom: 20,
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  modeBtnActive: {},
+  modeBtnText: {
+    fontSize: 14,
+  },
+  inputGroup: {
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  inputDivider: {
+    height: 1,
+    marginHorizontal: 16,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  examChipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8,
+  },
   examChip: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
     borderWidth: 1,
   },
-  examChipText: { fontSize: 13 },
+  examChipText: {
+    fontSize: 13,
+  },
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     padding: 12,
-    borderRadius: 10,
-    marginTop: 8,
-    marginBottom: 8,
+    borderRadius: 12,
+    marginTop: 4,
+    marginBottom: 4,
   },
-  errorText: { flex: 1, fontSize: 13 },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+  },
   submitBtn: {
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: "center",
     marginTop: 16,
   },
-  submitBtnText: { fontSize: 16, color: "#FFFFFF" },
+  submitBtnContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  submitBtnText: {
+    fontSize: 16,
+    color: "#FFFFFF",
+  },
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     marginTop: 10,
   },
-  backBtnText: { fontSize: 14 },
-  skipBtn: {
-    alignItems: "center",
-    paddingVertical: 16,
-    marginTop: 8,
+  backBtnText: {
+    fontSize: 14,
   },
-  skipBtnText: { fontSize: 13 },
 });
