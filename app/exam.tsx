@@ -71,17 +71,28 @@ export default function ExamScreen() {
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
   const isAdaptive = currentExam?.adaptive === true;
+  const practiceMode = currentExam?.practiceMode || "timed";
+  const isRelaxed = practiceMode === "relaxed";
+  const isSpeedRound = practiceMode === "speed";
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [markedForReview, setMarkedForReview] = useState<Set<string>>(new Set());
   const [timeLeft, setTimeLeft] = useState(0);
+  const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
   const [questionTimes, setQuestionTimes] = useState<Record<string, number>>({});
   const [showPalette, setShowPalette] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const questionStartRef = useRef(Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSubmitRef = useRef<() => void>(() => {});
+  const autoNextRef = useRef<() => void>(() => {});
+
+  const speedTimerProgress = useSharedValue(1);
+
+  const speedTimerStyle = useAnimatedStyle(() => ({
+    width: `${speedTimerProgress.value * 100}%` as any,
+  }));
 
   const [adaptiveState, setAdaptiveState] = useState<AdaptiveState>(() => createAdaptiveState());
   const [adaptiveQuestions, setAdaptiveQuestions] = useState<Question[]>([]);
@@ -102,25 +113,51 @@ export default function ExamScreen() {
       setAdaptiveState(initialState);
     }
 
-    const totalTime = (isAdaptive ? adaptiveMaxQuestions : currentExam.questions.length) * currentExam.timePerQuestion;
-    setTimeLeft(totalTime);
+    if (isRelaxed) {
+      setTimeLeft(0);
+    } else {
+      const totalTime = (isAdaptive ? adaptiveMaxQuestions : currentExam.questions.length) * currentExam.timePerQuestion;
+      setTimeLeft(totalTime);
+    }
     questionStartRef.current = Date.now();
 
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          setTimeout(() => autoSubmitRef.current(), 0);
-          return 0;
+    if (isSpeedRound) {
+      setQuestionTimeLeft(currentExam.timePerQuestion);
+      speedTimerProgress.value = 1;
+    }
+
+    if (!isRelaxed) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            setTimeout(() => autoSubmitRef.current(), 0);
+            return 0;
+          }
+          return prev - 1;
+        });
+        if (isSpeedRound) {
+          setQuestionTimeLeft((prev) => {
+            if (prev <= 1) {
+              setTimeout(() => autoNextRef.current(), 0);
+              return currentExam.timePerQuestion;
+            }
+            return prev - 1;
+          });
         }
-        return prev - 1;
-      });
-    }, 1000);
+      }, 1000);
+    }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (isSpeedRound && currentExam) {
+      speedTimerProgress.value = questionTimeLeft / currentExam.timePerQuestion;
+    }
+  }, [questionTimeLeft]);
 
   if (!currentExam) return null;
 
@@ -168,8 +205,16 @@ export default function ExamScreen() {
     }
   };
 
+  const resetSpeedTimer = () => {
+    if (isSpeedRound && currentExam) {
+      setQuestionTimeLeft(currentExam.timePerQuestion);
+      speedTimerProgress.value = 1;
+    }
+  };
+
   const handleNext = () => {
     recordQuestionTime();
+    resetSpeedTimer();
     if (isAdaptive) {
       setAdaptiveAnswerLocked(false);
     }
@@ -181,6 +226,7 @@ export default function ExamScreen() {
   const handlePrevious = () => {
     if (isAdaptive) return;
     recordQuestionTime();
+    resetSpeedTimer();
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
     }
@@ -188,6 +234,7 @@ export default function ExamScreen() {
 
   const handleSkip = () => {
     recordQuestionTime();
+    resetSpeedTimer();
     if (isAdaptive) {
       if (!adaptiveAnswerLocked) {
         const newState = updateAdaptiveState(adaptiveState, false);
@@ -261,6 +308,16 @@ export default function ExamScreen() {
 
   autoSubmitRef.current = handleSubmit;
 
+  autoNextRef.current = () => {
+    if (isSpeedRound) {
+      if (currentIndex < totalQuestions - 1) {
+        handleSkip();
+      } else {
+        handleSubmit();
+      }
+    }
+  };
+
   const handleConfirmSubmit = () => {
     const qList = isAdaptive ? adaptiveQuestions : currentExam.questions;
     const unanswered = qList.filter((q) => answers[q.id] === undefined || answers[q.id] === null).length;
@@ -292,7 +349,17 @@ export default function ExamScreen() {
   const answeredCount = Object.keys(answers).filter((k) => answers[k] !== null).length;
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
-  const isTimeWarning = timeLeft < 60;
+  const isTimeWarning = !isRelaxed && timeLeft < 60;
+  const isSpeedWarning = isSpeedRound && questionTimeLeft <= 5;
+
+  const modeIcon = practiceMode === "relaxed" ? "leaf-outline"
+    : practiceMode === "speed" ? "flash-outline"
+    : practiceMode === "marathon" ? "fitness-outline"
+    : "time-outline";
+  const modeColor = practiceMode === "relaxed" ? "#4CAF50"
+    : practiceMode === "speed" ? "#FF6B35"
+    : practiceMode === "marathon" ? "#9C27B0"
+    : colors.primary;
 
   const difficultyLabel = tr(`difficulty.${question.difficulty}`);
 
@@ -303,6 +370,37 @@ export default function ExamScreen() {
   const canGoNext = isAdaptive
     ? (adaptiveAnswerLocked && currentIndex < adaptiveQuestions.length - 1)
     : currentIndex < totalQuestions - 1;
+
+  const renderTimerBadge = () => {
+    if (isRelaxed) {
+      return (
+        <View style={[styles.timerBadge, { backgroundColor: "#4CAF50" + "20" }]}>
+          <Ionicons name="leaf-outline" size={14} color="#4CAF50" />
+          <Text style={[styles.timerText, { color: "#4CAF50", fontFamily: "Inter_600SemiBold" }]}>
+            {tr("mode.relaxed")}
+          </Text>
+        </View>
+      );
+    }
+    if (isSpeedRound) {
+      return (
+        <View style={[styles.timerBadge, { backgroundColor: isSpeedWarning ? colors.errorLight : "#FF6B35" + "20" }]}>
+          <Ionicons name="flash" size={14} color={isSpeedWarning ? colors.error : "#FF6B35"} />
+          <Text style={[styles.timerText, { color: isSpeedWarning ? colors.error : "#FF6B35", fontFamily: "Inter_600SemiBold" }]}>
+            {questionTimeLeft}s
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.timerBadge, { backgroundColor: isTimeWarning ? colors.errorLight : colors.primaryLight }]}>
+        <Ionicons name="time-outline" size={14} color={isTimeWarning ? colors.error : colors.primary} />
+        <Text style={[styles.timerText, { color: isTimeWarning ? colors.error : colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+          {minutes}:{seconds.toString().padStart(2, "0")}
+        </Text>
+      </View>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -320,12 +418,7 @@ export default function ExamScreen() {
           {isAdaptive ? (
             <AdaptiveDifficultyIndicator difficulty={adaptiveState.currentDifficulty} colors={colors} tr={tr} />
           ) : (
-            <View style={[styles.timerBadge, { backgroundColor: isTimeWarning ? colors.errorLight : colors.primaryLight }]}>
-              <Ionicons name="time-outline" size={14} color={isTimeWarning ? colors.error : colors.primary} />
-              <Text style={[styles.timerText, { color: isTimeWarning ? colors.error : colors.primary, fontFamily: "Inter_600SemiBold" }]}>
-                {minutes}:{seconds.toString().padStart(2, "0")}
-              </Text>
-            </View>
+            renderTimerBadge()
           )}
         </View>
 
@@ -342,6 +435,16 @@ export default function ExamScreen() {
           </Pressable>
         )}
       </View>
+
+      {isSpeedRound && (
+        <View style={[styles.speedTimerBar, { backgroundColor: colors.borderLight }]}>
+          <Animated.View style={[
+            styles.speedTimerFill,
+            { backgroundColor: isSpeedWarning ? colors.error : "#FF6B35" },
+            speedTimerStyle,
+          ]} />
+        </View>
+      )}
 
       <View style={[styles.progressBar, { backgroundColor: colors.borderLight }]}>
         <View style={[styles.progressFill, { width: `${((currentIndex + 1) / totalQuestions) * 100}%`, backgroundColor: colors.primary }]} />
@@ -656,6 +759,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   timerText: { fontSize: 14 },
+  speedTimerBar: { height: 4 },
+  speedTimerFill: { height: 4 },
   progressBar: { height: 3 },
   progressFill: { height: 3 },
   content: { flex: 1, paddingHorizontal: 20 },

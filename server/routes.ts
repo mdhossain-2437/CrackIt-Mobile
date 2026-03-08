@@ -452,6 +452,30 @@ Return ONLY a valid JSON array with this exact format, no other text:
     }
   });
 
+  app.get("/api/leaderboard", async (req, res) => {
+    try {
+      const period = (req.query.period as string) === "weekly" ? "weekly" : "alltime";
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+
+      const entries = await storage.getLeaderboard(period as "alltime" | "weekly", limit);
+
+      let currentUserRank: number | null = null;
+      if (req.session?.userId) {
+        currentUserRank = await storage.getUserRank(req.session.userId, period as "alltime" | "weekly");
+      }
+
+      res.json({
+        entries,
+        currentUserRank,
+        currentUserId: req.session?.userId || null,
+        period,
+      });
+    } catch (error: any) {
+      console.error("Leaderboard error:", error);
+      res.status(500).json({ error: "Failed to fetch leaderboard" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

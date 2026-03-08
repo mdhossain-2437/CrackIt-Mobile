@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   Platform,
+  Modal,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,8 +21,22 @@ import {
   getRecommendedExamTypes,
   type ExamType,
   type SubjectInfo,
+  type PracticeMode,
 } from "@/lib/questions";
 import { getAdaptiveQuestions, getTopicStrength, getNextAdaptiveQuestion } from "@/lib/algorithm";
+
+const PRACTICE_MODES: {
+  id: PracticeMode;
+  icon: string;
+  color: string;
+  timePerQ: number | null;
+  questionCount: number | null;
+}[] = [
+  { id: "relaxed", icon: "leaf-outline", color: "#4CAF50", timePerQ: null, questionCount: 10 },
+  { id: "timed", icon: "time-outline", color: "#1A73E8", timePerQ: 60, questionCount: 10 },
+  { id: "speed", icon: "flash-outline", color: "#FF6B35", timePerQ: 15, questionCount: 10 },
+  { id: "marathon", icon: "fitness-outline", color: "#9C27B0", timePerQ: 60, questionCount: 50 },
+];
 
 export default function PracticeScreen() {
   const colors = useColors();
@@ -29,6 +44,9 @@ export default function PracticeScreen() {
   const { userData, startExam, tr, language, authUser, isAuthenticated } = useApp();
   const [selectedExamType, setSelectedExamType] = useState<ExamType>(userData.examType);
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = useState<PracticeMode>("timed");
+  const [showModeModal, setShowModeModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ subject: string; questions: any[]; topic?: string } | null>(null);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const subjects = getSubjectsForExamType(selectedExamType);
@@ -43,29 +61,38 @@ export default function PracticeScreen() {
       })
     : EXAM_TYPES;
 
-  const handleTopicPress = (subject: SubjectInfo, topic: string) => {
-    const questions = shuffleArray(getQuestionsForSubject(subject.name, topic)).slice(0, 10);
-    if (questions.length === 0) return;
+  const modeConfig = PRACTICE_MODES.find((m) => m.id === selectedMode)!;
+
+  const launchExamWithMode = (subject: string, questions: any[], topic?: string) => {
+    const count = selectedMode === "marathon" ? Math.min(50, questions.length) : Math.min(10, questions.length);
+    const sliced = shuffleArray(questions).slice(0, count);
+    if (sliced.length === 0) return;
+
+    const timePerQ = modeConfig.timePerQ ?? 9999;
+
     startExam({
-      subject: subject.name,
+      subject,
       topic,
-      count: questions.length,
-      timePerQuestion: 60,
-      questions,
+      count: sliced.length,
+      timePerQuestion: timePerQ,
+      questions: sliced,
+      practiceMode: selectedMode,
     });
     router.push("/exam");
   };
 
-  const handleSubjectPress = (subject: SubjectInfo) => {
-    const questions = shuffleArray(getQuestionsForSubject(subject.name)).slice(0, 10);
+  const handleTopicPress = (subject: SubjectInfo, topic: string) => {
+    const questions = getQuestionsForSubject(subject.name, topic);
     if (questions.length === 0) return;
-    startExam({
-      subject: subject.name,
-      count: questions.length,
-      timePerQuestion: 60,
-      questions,
-    });
-    router.push("/exam");
+    setPendingAction({ subject: subject.name, questions, topic });
+    setShowModeModal(true);
+  };
+
+  const handleSubjectPress = (subject: SubjectInfo) => {
+    const questions = getQuestionsForSubject(subject.name);
+    if (questions.length === 0) return;
+    setPendingAction({ subject: subject.name, questions });
+    setShowModeModal(true);
   };
 
   const handleAdaptive = () => {
@@ -93,6 +120,14 @@ export default function PracticeScreen() {
     router.push("/exam");
   };
 
+  const handleConfirmMode = () => {
+    setShowModeModal(false);
+    if (pendingAction) {
+      launchExamWithMode(pendingAction.subject, pendingAction.questions, pendingAction.topic);
+      setPendingAction(null);
+    }
+  };
+
   const strengthColor = (strength: string) => {
     switch (strength) {
       case "weak": return colors.error;
@@ -103,182 +138,261 @@ export default function PracticeScreen() {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={{ paddingTop: topInset + 16, paddingBottom: 100 }}
-      contentInsetAdjustmentBehavior="never"
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={[styles.title, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
-        {tr("practice.title")}
-      </Text>
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.examTypesRow}
+        style={styles.scrollView}
+        contentContainerStyle={{ paddingTop: topInset + 16, paddingBottom: 100 }}
+        contentInsetAdjustmentBehavior="never"
+        showsVerticalScrollIndicator={false}
       >
-        {sortedExamTypes.map((exam) => {
-          const isSelected = selectedExamType === exam.id;
-          const isRecommended = recommendedTypes.includes(exam.id);
-          return (
-            <Pressable
-              key={exam.id}
-              style={[
-                styles.examTypeChip,
-                {
-                  backgroundColor: isSelected ? colors.primary : colors.surface,
-                  borderColor: isSelected ? colors.primary : isRecommended ? colors.primary + "60" : colors.border,
-                },
-              ]}
-              onPress={() => {
-                setSelectedExamType(exam.id);
-                setExpandedSubject(null);
-              }}
-            >
-              <Ionicons
-                name={exam.icon as any}
-                size={16}
-                color={isSelected ? "#FFFFFF" : isRecommended ? colors.primary : colors.textSecondary}
-              />
-              <Text
+        <Text style={[styles.title, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
+          {tr("practice.title")}
+        </Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.examTypesRow}
+        >
+          {sortedExamTypes.map((exam) => {
+            const isSelected = selectedExamType === exam.id;
+            const isRecommended = recommendedTypes.includes(exam.id);
+            return (
+              <Pressable
+                key={exam.id}
                 style={[
-                  styles.examTypeText,
+                  styles.examTypeChip,
                   {
-                    color: isSelected ? "#FFFFFF" : isRecommended ? colors.primary : colors.text,
-                    fontFamily: "Inter_600SemiBold",
+                    backgroundColor: isSelected ? colors.primary : colors.surface,
+                    borderColor: isSelected ? colors.primary : isRecommended ? colors.primary + "60" : colors.border,
                   },
                 ]}
+                onPress={() => {
+                  setSelectedExamType(exam.id);
+                  setExpandedSubject(null);
+                }}
               >
-                {language === "bn" ? exam.nameBn : exam.name}
-              </Text>
-            </Pressable>
+                <Ionicons
+                  name={exam.icon as any}
+                  size={16}
+                  color={isSelected ? "#FFFFFF" : isRecommended ? colors.primary : colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.examTypeText,
+                    {
+                      color: isSelected ? "#FFFFFF" : isRecommended ? colors.primary : colors.text,
+                      fontFamily: "Inter_600SemiBold",
+                    },
+                  ]}
+                >
+                  {language === "bn" ? exam.nameBn : exam.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <Pressable
+          style={[styles.adaptiveCard, { backgroundColor: colors.primaryLight, borderColor: colors.primary + "40" }]}
+          onPress={handleAdaptive}
+        >
+          <Ionicons name="flash" size={22} color={colors.primary} />
+          <View style={styles.adaptiveInfo}>
+            <Text style={[styles.adaptiveTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+              {tr("practice.adaptive")}
+            </Text>
+            <Text style={[styles.adaptiveDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {tr("practice.adaptiveDesc")}
+            </Text>
+          </View>
+          <Ionicons name="arrow-forward" size={20} color={colors.primary} />
+        </Pressable>
+
+        <Pressable
+          style={[styles.adaptiveModeCard, { backgroundColor: colors.warningLight, borderColor: colors.warning + "40" }]}
+          onPress={handleAdaptiveMode}
+        >
+          <Ionicons name="speedometer" size={22} color={colors.warning} />
+          <View style={styles.adaptiveInfo}>
+            <Text style={[styles.adaptiveTitle, { color: colors.warning, fontFamily: "Inter_600SemiBold" }]}>
+              {tr("adaptive.title")}
+            </Text>
+            <Text style={[styles.adaptiveDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {tr("adaptive.practiceDesc")}
+            </Text>
+          </View>
+          <Ionicons name="arrow-forward" size={20} color={colors.warning} />
+        </Pressable>
+
+        {subjects.map((subject) => {
+          const isExpanded = expandedSubject === subject.id;
+          const questionCount = getQuestionsForSubject(subject.name).length;
+          const progress = userData.subjectProgress[subject.name];
+          const pct = progress ? Math.round((progress.correct / Math.max(progress.total, 1)) * 100) : 0;
+          const subjectName = language === "bn" ? subject.nameBn : subject.name;
+
+          return (
+            <View key={subject.id} style={styles.subjectSection}>
+              <Pressable
+                style={[styles.subjectHeader, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                onPress={() => setExpandedSubject(isExpanded ? null : subject.id)}
+              >
+                <View style={[styles.subjectIconWrap, { backgroundColor: subject.color + "20" }]}>
+                  <Ionicons name={subject.icon as any} size={20} color={subject.color} />
+                </View>
+                <View style={styles.subjectInfo}>
+                  <Text style={[styles.subjectName, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                    {subjectName}
+                  </Text>
+                  <Text style={[styles.subjectMeta, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                    {questionCount} {tr("practice.questions")}{progress ? ` - ${pct}% ${tr("dashboard.accuracy").toLowerCase()}` : ""}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={isExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              </Pressable>
+
+              {isExpanded && (
+                <View style={[styles.topicsContainer, { borderColor: colors.borderLight }]}>
+                  <Pressable
+                    style={[styles.topicItem, { borderBottomColor: colors.borderLight }]}
+                    onPress={() => handleSubjectPress(subject)}
+                  >
+                    <View style={styles.topicInfo}>
+                      <Ionicons name="shuffle-outline" size={18} color={colors.primary} />
+                      <Text style={[styles.topicName, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
+                        {tr("practice.allTopics")}
+                      </Text>
+                    </View>
+                    <Ionicons name="arrow-forward" size={18} color={colors.primary} />
+                  </Pressable>
+
+                  {subject.topics.map((topic, idx) => {
+                    const topicQuestions = getQuestionsForSubject(subject.name, topic).length;
+                    const strength = getTopicStrength(userData, subject.name, topic);
+                    const topicName = language === "bn" && subject.topicsBn[idx] ? subject.topicsBn[idx] : topic;
+                    return (
+                      <Pressable
+                        key={topic}
+                        style={[
+                          styles.topicItem,
+                          idx < subject.topics.length - 1 && { borderBottomColor: colors.borderLight, borderBottomWidth: 1 },
+                        ]}
+                        onPress={() => handleTopicPress(subject, topic)}
+                      >
+                        <View style={styles.topicInfo}>
+                          <Ionicons name="document-text-outline" size={18} color={colors.textSecondary} />
+                          <View>
+                            <View style={styles.topicNameRow}>
+                              <Text style={[styles.topicName, { color: colors.text, fontFamily: "Inter_500Medium" }]}>
+                                {topicName}
+                              </Text>
+                              {strength !== "unseen" && (
+                                <View style={[styles.strengthDot, { backgroundColor: strengthColor(strength) }]} />
+                              )}
+                            </View>
+                            <Text style={[styles.topicCount, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                              {topicQuestions} {topicQuestions !== 1 ? tr("practice.questions") : tr("practice.question")}
+                            </Text>
+                          </View>
+                        </View>
+                        <Ionicons name="arrow-forward" size={16} color={colors.textTertiary} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
           );
         })}
       </ScrollView>
 
-      <Pressable
-        style={[styles.adaptiveCard, { backgroundColor: colors.primaryLight, borderColor: colors.primary + "40" }]}
-        onPress={handleAdaptive}
-      >
-        <Ionicons name="flash" size={22} color={colors.primary} />
-        <View style={styles.adaptiveInfo}>
-          <Text style={[styles.adaptiveTitle, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
-            {tr("practice.adaptive")}
-          </Text>
-          <Text style={[styles.adaptiveDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            {tr("practice.adaptiveDesc")}
-          </Text>
-        </View>
-        <Ionicons name="arrow-forward" size={20} color={colors.primary} />
-      </Pressable>
+      <Modal visible={showModeModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text, fontFamily: "Inter_700Bold" }]}>
+                {tr("mode.select")}
+              </Text>
+              <Pressable onPress={() => { setShowModeModal(false); setPendingAction(null); }}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </Pressable>
+            </View>
 
-      <Pressable
-        style={[styles.adaptiveModeCard, { backgroundColor: colors.warningLight, borderColor: colors.warning + "40" }]}
-        onPress={handleAdaptiveMode}
-      >
-        <Ionicons name="speedometer" size={22} color={colors.warning} />
-        <View style={styles.adaptiveInfo}>
-          <Text style={[styles.adaptiveTitle, { color: colors.warning, fontFamily: "Inter_600SemiBold" }]}>
-            {tr("adaptive.title")}
-          </Text>
-          <Text style={[styles.adaptiveDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            {tr("adaptive.practiceDesc")}
-          </Text>
-        </View>
-        <Ionicons name="arrow-forward" size={20} color={colors.warning} />
-      </Pressable>
-
-      {subjects.map((subject) => {
-        const isExpanded = expandedSubject === subject.id;
-        const questionCount = getQuestionsForSubject(subject.name).length;
-        const progress = userData.subjectProgress[subject.name];
-        const pct = progress ? Math.round((progress.correct / Math.max(progress.total, 1)) * 100) : 0;
-        const subjectName = language === "bn" ? subject.nameBn : subject.name;
-
-        return (
-          <View key={subject.id} style={styles.subjectSection}>
-            <Pressable
-              style={[styles.subjectHeader, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
-              onPress={() => setExpandedSubject(isExpanded ? null : subject.id)}
-            >
-              <View style={[styles.subjectIconWrap, { backgroundColor: subject.color + "20" }]}>
-                <Ionicons name={subject.icon as any} size={20} color={subject.color} />
-              </View>
-              <View style={styles.subjectInfo}>
-                <Text style={[styles.subjectName, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
-                  {subjectName}
-                </Text>
-                <Text style={[styles.subjectMeta, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                  {questionCount} {tr("practice.questions")}{progress ? ` - ${pct}% ${tr("dashboard.accuracy").toLowerCase()}` : ""}
-                </Text>
-              </View>
-              <Ionicons
-                name={isExpanded ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.textSecondary}
-              />
-            </Pressable>
-
-            {isExpanded && (
-              <View style={[styles.topicsContainer, { borderColor: colors.borderLight }]}>
-                <Pressable
-                  style={[styles.topicItem, { borderBottomColor: colors.borderLight }]}
-                  onPress={() => handleSubjectPress(subject)}
-                >
-                  <View style={styles.topicInfo}>
-                    <Ionicons name="shuffle-outline" size={18} color={colors.primary} />
-                    <Text style={[styles.topicName, { color: colors.primary, fontFamily: "Inter_600SemiBold" }]}>
-                      {tr("practice.allTopics")}
+            <View style={styles.modesGrid}>
+              {PRACTICE_MODES.map((mode) => {
+                const isActive = selectedMode === mode.id;
+                return (
+                  <Pressable
+                    key={mode.id}
+                    style={[
+                      styles.modeCard,
+                      {
+                        backgroundColor: isActive ? mode.color + "15" : colors.surface,
+                        borderColor: isActive ? mode.color : colors.borderLight,
+                        borderWidth: isActive ? 2 : 1,
+                      },
+                    ]}
+                    onPress={() => setSelectedMode(mode.id)}
+                  >
+                    <View style={[styles.modeIconWrap, { backgroundColor: mode.color + "20" }]}>
+                      <Ionicons name={mode.icon as any} size={24} color={mode.color} />
+                    </View>
+                    <Text style={[styles.modeCardTitle, { color: isActive ? mode.color : colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                      {tr(`mode.${mode.id}`)}
                     </Text>
-                  </View>
-                  <Ionicons name="arrow-forward" size={18} color={colors.primary} />
-                </Pressable>
-
-                {subject.topics.map((topic, idx) => {
-                  const topicQuestions = getQuestionsForSubject(subject.name, topic).length;
-                  const strength = getTopicStrength(userData, subject.name, topic);
-                  const topicName = language === "bn" && subject.topicsBn[idx] ? subject.topicsBn[idx] : topic;
-                  return (
-                    <Pressable
-                      key={topic}
-                      style={[
-                        styles.topicItem,
-                        idx < subject.topics.length - 1 && { borderBottomColor: colors.borderLight, borderBottomWidth: 1 },
-                      ]}
-                      onPress={() => handleTopicPress(subject, topic)}
-                    >
-                      <View style={styles.topicInfo}>
-                        <Ionicons name="document-text-outline" size={18} color={colors.textSecondary} />
-                        <View>
-                          <View style={styles.topicNameRow}>
-                            <Text style={[styles.topicName, { color: colors.text, fontFamily: "Inter_500Medium" }]}>
-                              {topicName}
-                            </Text>
-                            {strength !== "unseen" && (
-                              <View style={[styles.strengthDot, { backgroundColor: strengthColor(strength) }]} />
-                            )}
-                          </View>
-                          <Text style={[styles.topicCount, { color: colors.textTertiary, fontFamily: "Inter_400Regular" }]}>
-                            {topicQuestions} {topicQuestions !== 1 ? tr("practice.questions") : tr("practice.question")}
-                          </Text>
-                        </View>
+                    <Text style={[styles.modeCardDesc, { color: colors.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                      {tr(`mode.${mode.id}.desc`)}
+                    </Text>
+                    <View style={styles.modeCardMeta}>
+                      {mode.timePerQ ? (
+                        <Text style={[styles.modeMetaText, { color: mode.color, fontFamily: "Inter_500Medium" }]}>
+                          {mode.timePerQ}s {tr("mode.perQuestion")}
+                        </Text>
+                      ) : (
+                        <Text style={[styles.modeMetaText, { color: mode.color, fontFamily: "Inter_500Medium" }]}>
+                          {tr("mode.noTimer")}
+                        </Text>
+                      )}
+                      {mode.id === "marathon" && (
+                        <Text style={[styles.modeMetaText, { color: mode.color, fontFamily: "Inter_500Medium" }]}>
+                          50 {tr("mode.questions")}
+                        </Text>
+                      )}
+                    </View>
+                    {isActive && (
+                      <View style={[styles.modeCheck, { backgroundColor: mode.color }]}>
+                        <Ionicons name="checkmark" size={14} color="#FFFFFF" />
                       </View>
-                      <Ionicons name="arrow-forward" size={16} color={colors.textTertiary} />
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              style={[styles.startButton, { backgroundColor: PRACTICE_MODES.find(m => m.id === selectedMode)!.color }]}
+              onPress={handleConfirmMode}
+            >
+              <Ionicons name="play" size={20} color="#FFFFFF" />
+              <Text style={[styles.startButtonText, { fontFamily: "Inter_600SemiBold" }]}>
+                {tr("mode.start")}
+              </Text>
+            </Pressable>
           </View>
-        );
-      })}
-    </ScrollView>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scrollView: { flex: 1 },
   title: {
     fontSize: 28,
     paddingHorizontal: 20,
@@ -330,11 +444,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
   },
   subjectIconWrap: {
     width: 40,
@@ -376,4 +485,69 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: "85%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    marginBottom: 16,
+  },
+  modalTitle: { fontSize: 20 },
+  modesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 20,
+  },
+  modeCard: {
+    width: "47%",
+    padding: 14,
+    borderRadius: 14,
+    position: "relative",
+    minHeight: 140,
+  },
+  modeIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  modeCardTitle: { fontSize: 15, marginBottom: 4 },
+  modeCardDesc: { fontSize: 11, lineHeight: 16, marginBottom: 8 },
+  modeCardMeta: { gap: 2 },
+  modeMetaText: { fontSize: 11 },
+  modeCheck: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  startButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 14,
+    marginBottom: Platform.OS === "web" ? 34 : 10,
+  },
+  startButtonText: { fontSize: 16, color: "#FFFFFF" },
 });

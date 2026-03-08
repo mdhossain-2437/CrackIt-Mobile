@@ -275,6 +275,33 @@ const translations: Record<string, Record<Language, string>> = {
   "topic.nahw_sarf": { en: "Nahw & Sarf", bn: "নাহু ও সরফ" },
   "topic.arabic_literature": { en: "Arabic Literature", bn: "আরবি সাহিত্য" },
   "topic.general": { en: "General", bn: "সাধারণ" },
+
+  "mode.select": { en: "Practice Mode", bn: "অনুশীলন মোড" },
+  "mode.relaxed": { en: "Relaxed", bn: "আরামদায়ক" },
+  "mode.relaxed.desc": { en: "No timer, learn at your own pace", bn: "কোনো টাইমার নেই, নিজের গতিতে শিখুন" },
+  "mode.timed": { en: "Timed", bn: "সময়বদ্ধ" },
+  "mode.timed.desc": { en: "60s per question, standard exam style", bn: "প্রশ্ন প্রতি ৬০ সেকেন্ড, স্ট্যান্ডার্ড পরীক্ষার ধরন" },
+  "mode.speed": { en: "Speed Round", bn: "দ্রুত রাউন্ড" },
+  "mode.speed.desc": { en: "15s per question, test your reflexes", bn: "প্রশ্ন প্রতি ১৫ সেকেন্ড, আপনার প্রতিক্রিয়া পরীক্ষা করুন" },
+  "mode.marathon": { en: "Marathon", bn: "ম্যারাথন" },
+  "mode.marathon.desc": { en: "50 questions, endurance test", bn: "৫০টি প্রশ্ন, ধৈর্য পরীক্ষা" },
+  "mode.badge.relaxed": { en: "Relaxed Mode", bn: "আরামদায়ক মোড" },
+  "mode.badge.timed": { en: "Timed Mode", bn: "সময়বদ্ধ মোড" },
+  "mode.badge.speed": { en: "Speed Round", bn: "দ্রুত রাউন্ড" },
+  "mode.badge.marathon": { en: "Marathon Mode", bn: "ম্যারাথন মোড" },
+  "mode.start": { en: "Start Practice", bn: "অনুশীলন শুরু করুন" },
+  "mode.perQuestion": { en: "per question", bn: "প্রতি প্রশ্ন" },
+  "mode.noTimer": { en: "No timer", bn: "টাইমার নেই" },
+  "mode.questions": { en: "questions", bn: "প্রশ্ন" },
+
+  "leaderboard.title": { en: "Leaderboard", bn: "লিডারবোর্ড" },
+  "leaderboard.allTime": { en: "All Time", bn: "সর্বকালীন" },
+  "leaderboard.weekly": { en: "This Week", bn: "এই সপ্তাহ" },
+  "leaderboard.rank": { en: "Rank", bn: "র‍্যাঙ্ক" },
+  "leaderboard.yourRank": { en: "Your Rank", bn: "আপনার র‍্যাঙ্ক" },
+  "leaderboard.noData": { en: "No leaderboard data yet", bn: "এখনো লিডারবোর্ড ডেটা নেই" },
+  "leaderboard.loginToSee": { en: "Log in to see your rank", bn: "আপনার র‍্যাঙ্ক দেখতে লগ ইন করুন" },
+  "leaderboard.you": { en: "You", bn: "আপনি" },
 };
 
 export function t(key: string, language: Language): string {

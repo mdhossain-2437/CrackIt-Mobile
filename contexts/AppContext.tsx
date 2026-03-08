@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { ExamType, ExamConfig, ExamAnswer, ExamResult, UserData, SubjectProgress, TopicProgress, Difficulty, Question } from "@/lib/questions";
+import type { ExamType, ExamConfig, ExamAnswer, ExamResult, UserData, SubjectProgress, TopicProgress, Difficulty, Question, PracticeMode } from "@/lib/questions";
 import { t, type Language } from "@/lib/i18n";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 
@@ -237,6 +237,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       score,
       adaptive: currentExam.adaptive,
       difficultyProgression,
+      practiceMode: currentExam.practiceMode,
     };
 
     const subjectProgress: SubjectProgress = userData.subjectProgress[currentExam.subject] || { total: 0, correct: 0 };
@@ -291,7 +292,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           wrongAnswers: wrong,
           skipped,
           totalTime,
-          examMode: currentExam.adaptive ? "adaptive" : "normal",
+          examMode: currentExam.adaptive ? "adaptive" : (currentExam.practiceMode || "timed"),
         });
         await apiRequest("POST", "/api/auth/update", {
           streak: updated.streak,

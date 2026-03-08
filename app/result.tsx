@@ -21,7 +21,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useColors } from "@/constants/colors";
 import { useApp } from "@/contexts/AppContext";
-import type { Difficulty } from "@/lib/questions";
+import type { Difficulty, PracticeMode } from "@/lib/questions";
 
 function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: any; label: string }) {
   const progress = useSharedValue(0);
@@ -70,10 +70,7 @@ function AnimatedScoreCircle({ score, colors, label }: { score: number; colors: 
       )}
       <Animated.View style={[styles.scoreCircle, {
         borderColor: scoreColor,
-        shadowColor: scoreColor,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
+        boxShadow: `0px 0px 12px ${scoreColor}4D`,
         elevation: 8,
       }, animatedStyle]}>
         <Text style={[styles.scoreValue, { color: scoreColor, fontFamily: "Inter_700Bold" }]}>
@@ -265,6 +262,40 @@ export default function ResultScreen() {
         <View style={styles.scoreSection}>
           <AnimatedScoreCircle score={lastResult.score} colors={colors} label={tr("result.score")} />
 
+          {lastResult.practiceMode && (
+            <View style={[styles.modeBadge, {
+              backgroundColor: lastResult.practiceMode === "relaxed" ? "#4CAF50" + "18"
+                : lastResult.practiceMode === "speed" ? "#FF6B35" + "18"
+                : lastResult.practiceMode === "marathon" ? "#9C27B0" + "18"
+                : colors.primaryLight,
+              borderColor: lastResult.practiceMode === "relaxed" ? "#4CAF50" + "40"
+                : lastResult.practiceMode === "speed" ? "#FF6B35" + "40"
+                : lastResult.practiceMode === "marathon" ? "#9C27B0" + "40"
+                : colors.primary + "40",
+            }]}>
+              <Ionicons
+                name={(lastResult.practiceMode === "relaxed" ? "leaf-outline"
+                  : lastResult.practiceMode === "speed" ? "flash-outline"
+                  : lastResult.practiceMode === "marathon" ? "fitness-outline"
+                  : "time-outline") as any}
+                size={14}
+                color={lastResult.practiceMode === "relaxed" ? "#4CAF50"
+                  : lastResult.practiceMode === "speed" ? "#FF6B35"
+                  : lastResult.practiceMode === "marathon" ? "#9C27B0"
+                  : colors.primary}
+              />
+              <Text style={[styles.modeBadgeText, {
+                color: lastResult.practiceMode === "relaxed" ? "#4CAF50"
+                  : lastResult.practiceMode === "speed" ? "#FF6B35"
+                  : lastResult.practiceMode === "marathon" ? "#9C27B0"
+                  : colors.primary,
+                fontFamily: "Inter_600SemiBold",
+              }]}>
+                {tr(`mode.badge.${lastResult.practiceMode}`)}
+              </Text>
+            </View>
+          )}
+
           <Text style={[styles.subjectTitle, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>
             {lastResult.subject}
             {lastResult.topic ? ` - ${lastResult.topic}` : ""}
@@ -447,6 +478,17 @@ const styles = StyleSheet.create({
   },
   scoreValue: { fontSize: 38 },
   scoreLabel: { fontSize: 13, marginTop: 2 },
+  modeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  modeBadgeText: { fontSize: 12 },
   subjectTitle: { fontSize: 16, textAlign: "center" },
   statsRow: {
     flexDirection: "row",

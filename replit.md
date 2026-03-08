@@ -24,8 +24,12 @@ CrackIt is a premium mobile-first exam preparation platform for Bangladesh compe
 - AI-generated questions via OpenAI (gpt-5.2) in both languages
 - Advanced analytics dashboard with subject accuracy, score history, weakness radar
 - Full exam interface with countdown timer, question palette, mark-for-review
+- 4 practice modes: Relaxed (no timer), Timed (60s/q), Speed Round (15s/q), Marathon (50q)
+- Leaderboard system with weekly/all-time rankings by XP
 - Result analytics with animated score, difficulty progression summary
-- Dark mode support, premium UI with staggered animations
+- Custom CrackIt branded app icon (lightning bolt motif)
+- Branded landing page with feature showcase, exam badges, QR code section
+- Dark mode support, premium UI with staggered animations and boxShadow styling
 
 ## File Structure
 ```
@@ -48,7 +52,7 @@ contexts/
   AppContext.tsx        - App state: auth, language, topicProgress, tr(), loginUser(), registerUser()
 
 lib/
-  i18n.ts              - Translation system (280+ keys, en/bn)
+  i18n.ts              - Translation system (300+ keys, en/bn)
   algorithm.ts         - Adaptive question selection + adaptive exam difficulty engine
   questions.ts         - 9 exam types, 500+ questions, type definitions
   query-client.ts      - React Query client, API utilities
@@ -84,6 +88,7 @@ server/
 - `POST /api/chat` - AI chatbot conversation
 - `POST /api/generate-questions` - AI question generation
 - `POST /api/batch-generate` - Bulk AI question generation
+- `GET /api/leaderboard` - Leaderboard rankings (query: period=weekly|alltime)
 
 ## Education Levels
 - Primary (Class 1-5), Junior (Class 6-8), SSC (Class 9-10), HSC (Class 11-12), University Admission, Job Preparation

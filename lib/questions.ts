@@ -2,6 +2,7 @@ import type { Language } from "./i18n";
 
 export type ExamType = "bcs" | "medical" | "engineering" | "university" | "ssc" | "hsc" | "jsc" | "psc" | "madrasah";
 export type Difficulty = "easy" | "medium" | "hard";
+export type PracticeMode = "relaxed" | "timed" | "speed" | "marathon";
 
 export interface Question {
   id: string;
@@ -45,6 +46,7 @@ export interface ExamConfig {
   timePerQuestion: number;
   questions: Question[];
   adaptive?: boolean;
+  practiceMode?: PracticeMode;
 }
 
 export interface ExamAnswer {
@@ -69,6 +71,7 @@ export interface ExamResult {
   score: number;
   adaptive?: boolean;
   difficultyProgression?: Difficulty[];
+  practiceMode?: PracticeMode;
 }
 
 export interface SubjectProgress {

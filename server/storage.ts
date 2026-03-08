@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql, gte } from "drizzle-orm";
 import pg from "pg";
 import {
   users,
@@ -17,6 +17,15 @@ const pool = new pg.Pool({
 
 export const db = drizzle(pool);
 
+export interface LeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  xp: number;
+  streak: number;
+  totalQuestionsSolved: number;
+}
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -26,6 +35,8 @@ export interface IStorage {
   getExamResults(userId: string, limit?: number): Promise<ExamResult[]>;
   getProgress(userId: string): Promise<UserProgress[]>;
   upsertProgress(userId: string, subject: string, topic: string, correct: boolean): Promise<void>;
+  getLeaderboard(period: "alltime" | "weekly", limit?: number): Promise<LeaderboardEntry[]>;
+  getUserRank(userId: string, period: "alltime" | "weekly"): Promise<number | null>;
 }
 
 class PgStorage implements IStorage {
@@ -101,6 +112,94 @@ class PgStorage implements IStorage {
         lastPracticed: new Date().toISOString(),
       });
     }
+  }
+  async getLeaderboard(period: "alltime" | "weekly", limit: number = 10): Promise<LeaderboardEntry[]> {
+    if (period === "alltime") {
+      const rows = await db
+        .select({
+          userId: users.id,
+          name: users.name,
+          xp: users.xp,
+          streak: users.streak,
+          totalQuestionsSolved: users.totalQuestionsSolved,
+        })
+        .from(users)
+        .orderBy(desc(users.xp))
+        .limit(limit);
+
+      return rows.map((r, idx) => ({ ...r, rank: idx + 1 }));
+    }
+
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const rows = await db
+      .select({
+        userId: examResults.userId,
+        name: users.name,
+        xp: sql<number>`COALESCE(SUM(${examResults.correctAnswers} * 10 + CASE WHEN ${examResults.score} >= 80 THEN 50 WHEN ${examResults.score} >= 60 THEN 25 ELSE 0 END), 0)`.as("xp"),
+        streak: users.streak,
+        totalQuestionsSolved: sql<number>`COALESCE(SUM(${examResults.totalQuestions}), 0)`.as("totalQuestionsSolved"),
+      })
+      .from(examResults)
+      .innerJoin(users, eq(examResults.userId, users.id))
+      .where(gte(examResults.createdAt, oneWeekAgo))
+      .groupBy(examResults.userId, users.name, users.streak)
+      .orderBy(sql`xp DESC`)
+      .limit(limit);
+
+    return rows.map((r, idx) => ({
+      rank: idx + 1,
+      userId: r.userId,
+      name: r.name,
+      xp: Number(r.xp),
+      streak: r.streak,
+      totalQuestionsSolved: Number(r.totalQuestionsSolved),
+    }));
+  }
+
+  async getUserRank(userId: string, period: "alltime" | "weekly"): Promise<number | null> {
+    if (period === "alltime") {
+      const user = await this.getUser(userId);
+      if (!user) return null;
+
+      const result = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(users)
+        .where(sql`${users.xp} > ${user.xp}`);
+
+      return Number(result[0]?.count ?? 0) + 1;
+    }
+
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const userWeeklyXp = await db
+      .select({
+        xp: sql<number>`COALESCE(SUM(${examResults.correctAnswers} * 10 + CASE WHEN ${examResults.score} >= 80 THEN 50 WHEN ${examResults.score} >= 60 THEN 25 ELSE 0 END), 0)`,
+      })
+      .from(examResults)
+      .where(and(eq(examResults.userId, userId), gte(examResults.createdAt, oneWeekAgo)));
+
+    const myXp = Number(userWeeklyXp[0]?.xp ?? 0);
+    if (myXp === 0) return null;
+
+    const higherCount = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(
+        db
+          .select({
+            uid: examResults.userId,
+            xp: sql<number>`SUM(${examResults.correctAnswers} * 10 + CASE WHEN ${examResults.score} >= 80 THEN 50 WHEN ${examResults.score} >= 60 THEN 25 ELSE 0 END)`.as("xp"),
+          })
+          .from(examResults)
+          .where(gte(examResults.createdAt, oneWeekAgo))
+          .groupBy(examResults.userId)
+          .as("weekly_scores")
+      )
+      .where(sql`xp > ${myXp}`);
+
+    return Number(higherCount[0]?.count ?? 0) + 1;
   }
 }
 

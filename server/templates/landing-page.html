@@ -1,459 +1,508 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
-    <title>APP_NAME_PLACEHOLDER</title>
+    <title>APP_NAME_PLACEHOLDER - Master Every Exam</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="CrackIt - AI-powered exam preparation platform for Bangladesh students. 500+ questions, adaptive learning, AI chatbot, and bilingual support from PSC to BCS." />
+    <meta property="og:title" content="CrackIt - Master Every Exam" />
+    <meta property="og:description" content="AI-powered exam prep for Bangladesh. 500+ questions, adaptive learning, analytics dashboard." />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
-      * {
-        box-sizing: border-box;
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --primary: #1A73E8;
+        --primary-dark: #1557B0;
+        --primary-light: #E8F0FE;
+        --bg: #FFFFFF;
+        --surface: #F8F9FA;
+        --text: #202124;
+        --text-secondary: #5F6368;
+        --border: #E8EAED;
+        --success: #34A853;
+        --warning: #FBBC04;
+        --error: #EA4335;
+        --streak: #FF6D00;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --primary: #8AB4F8;
+          --primary-dark: #669DF6;
+          --primary-light: #1A2744;
+          --bg: #121212;
+          --surface: #1E1E1E;
+          --text: #E8EAED;
+          --text-secondary: #9AA0A6;
+          --border: #3C4043;
+          --success: #81C995;
+          --warning: #FDD663;
+          --error: #F28B82;
+          --streak: #FFAB40;
+        }
       }
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        margin: 0;
-        padding: 32px 20px;
-        text-align: center;
-        background: #fff;
-        color: #222;
-        line-height: 1.5;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
         min-height: 100vh;
+        overflow-x: hidden;
       }
-      .wrapper {
+      .hero {
+        padding: 60px 20px 40px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle at 50% 30%, var(--primary-light) 0%, transparent 50%);
+        pointer-events: none;
+      }
+      .hero-content {
+        position: relative;
+        z-index: 1;
+        max-width: 640px;
+        margin: 0 auto;
+      }
+      .logo-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 20px;
+        background: var(--primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 20px;
+        box-shadow: 0 8px 32px rgba(26, 115, 232, 0.3);
+      }
+      .logo-icon svg {
+        width: 40px;
+        height: 40px;
+        fill: #FFFFFF;
+      }
+      .hero h1 {
+        font-size: 42px;
+        font-weight: 800;
+        letter-spacing: -1px;
+        margin-bottom: 8px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .hero .tagline {
+        font-size: 20px;
+        color: var(--text-secondary);
+        font-weight: 500;
+        margin-bottom: 6px;
+      }
+      .hero .tagline-bn {
+        font-size: 18px;
+        color: var(--text-secondary);
+        font-weight: 400;
+        margin-bottom: 32px;
+        opacity: 0.8;
+      }
+      .stats-row {
+        display: flex;
+        justify-content: center;
+        gap: 32px;
+        margin-bottom: 36px;
+        flex-wrap: wrap;
+      }
+      .stat-item {
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--primary);
+      }
+      .stat-label {
+        font-size: 13px;
+        color: var(--text-secondary);
+        font-weight: 500;
+      }
+      .features {
+        padding: 40px 20px;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      .features h2 {
+        text-align: center;
+        font-size: 28px;
+        font-weight: 700;
+        margin-bottom: 32px;
+      }
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+      }
+      .feature-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .feature-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      }
+      .feature-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 14px;
+        font-size: 24px;
+      }
+      .feature-card h3 {
+        font-size: 17px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .feature-card p {
+        font-size: 14px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+      }
+      .exams-section {
+        padding: 40px 20px;
+        text-align: center;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      .exams-section h2 {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 24px;
+      }
+      .exam-badges {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+      }
+      .exam-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+        transition: background 0.2s, border-color 0.2s;
+      }
+      .exam-badge:hover {
+        background: var(--primary-light);
+        border-color: var(--primary);
+        color: var(--primary);
+      }
+      .exam-badge .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .qr-section {
+        padding: 48px 20px;
+        text-align: center;
         max-width: 480px;
         margin: 0 auto;
       }
-      h1 {
-        font-size: 26px;
-        font-weight: 600;
-        margin: 0;
-        color: #111;
+      .qr-section h2 {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 8px;
       }
-      .subtitle {
+      .qr-section .subtitle {
+        color: var(--text-secondary);
         font-size: 15px;
-        color: #666;
-        margin-top: 8px;
+        margin-bottom: 28px;
+      }
+      .qr-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
         margin-bottom: 32px;
       }
-      .loading {
-        display: none;
-        margin: 60px 0;
-      }
-      .spinner {
-        border: 2px solid #ddd;
-        border-top-color: #333;
-        border-radius: 50%;
-        width: 32px;
-        height: 32px;
-        animation: spin 0.8s linear infinite;
-        margin: 20px auto;
-      }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-      .loading-text {
-        font-size: 16px;
-        color: #444;
-      }
-      .content {
-        display: block;
-      }
-
-      .steps-container {
+      .qr-step {
         display: flex;
-        flex-direction: column;
-        gap: 20px;
-      }
-
-      .step {
-        padding: 24px;
-        border: 1px solid #ddd;
-        border-radius: 12px;
-        text-align: center;
-        background: #fafafa;
-      }
-      .step-header {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        margin-bottom: 12px;
+        align-items: flex-start;
+        gap: 14px;
+        text-align: left;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px;
       }
       .step-number {
-        width: 28px;
-        height: 28px;
-        border: 1px solid #999;
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
+        background: var(--primary);
+        color: #FFFFFF;
+        font-weight: 700;
+        font-size: 15px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 600;
-        font-size: 14px;
         flex-shrink: 0;
-        color: #555;
       }
-      .step-title {
-        font-size: 18px;
+      .step-content h3 {
+        font-size: 15px;
         font-weight: 600;
-        margin: 0;
-        color: #222;
+        margin-bottom: 4px;
       }
-      .step-description {
-        font-size: 14px;
-        margin-bottom: 16px;
-        color: #666;
+      .step-content p {
+        font-size: 13px;
+        color: var(--text-secondary);
       }
-
-      .store-buttons {
+      .store-links {
         display: flex;
-        flex-direction: column;
-        gap: 6px;
         justify-content: center;
-        flex-wrap: wrap;
-      }
-      .store-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        padding: 12px 20px;
-        font-size: 14px;
-        font-weight: 500;
-        border: 1px solid #ccc;
-        border-radius: 8px;
-        text-decoration: none;
-        color: #333;
-        background: #fff;
-        transition: all 0.15s;
-      }
-      .store-button:hover {
-        background: #f5f5f5;
-        border-color: #999;
+        gap: 12px;
+        margin-top: 12px;
       }
       .store-link {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 8px 0;
-        font-size: 13px;
-        font-weight: 400;
-        text-decoration: underline;
-        text-underline-offset: 2px;
-        color: #666;
-        background: none;
-        border: none;
-        transition: color 0.15s;
-      }
-      .store-link:hover {
-        color: #333;
-      }
-      .store-link .store-icon {
-        width: 14px;
-        height: 14px;
-      }
-      .store-icon {
-        width: 18px;
-        height: 18px;
-      }
-
-      .qr-section {
-        background: #333;
-        color: #fff;
-        border-color: #333;
-      }
-      .qr-section .step-number {
-        border-color: rgba(255, 255, 255, 0.5);
-        color: #fff;
-      }
-      .qr-section .step-title {
-        color: #fff;
-      }
-      .qr-section .step-description {
-        color: rgba(255, 255, 255, 0.7);
-      }
-      .qr-code {
-        width: 180px;
-        height: 180px;
-        margin: 0 auto 16px;
-        background: #fff;
-        border-radius: 8px;
-        padding: 12px;
-      }
-      .qr-code canvas {
-        width: 100%;
-        height: 100%;
-      }
-      .open-button {
-        display: inline-block;
-        padding: 12px 24px;
-        font-size: 14px;
-        font-weight: 500;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 8px;
+        gap: 8px;
+        padding: 10px 18px;
+        border-radius: 10px;
+        background: var(--text);
+        color: var(--bg);
         text-decoration: none;
-        color: #333;
-        background: #fff;
-        transition: opacity 0.15s;
+        font-size: 13px;
+        font-weight: 600;
+        transition: opacity 0.2s;
       }
-      .open-button:hover {
-        opacity: 0.9;
+      .store-link:hover { opacity: 0.85; }
+      .store-link svg { width: 20px; height: 20px; fill: var(--bg); }
+      #qr-code {
+        display: flex;
+        justify-content: center;
+        margin: 24px 0;
       }
-
-      /* Desktop styles */
-      @media (min-width: 768px) {
-        body {
-          padding: 48px 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .wrapper {
-          max-width: 720px;
-        }
-        h1 {
-          font-size: 32px;
-          margin-bottom: 10px;
-        }
-        .subtitle {
-          font-size: 16px;
-          margin-bottom: 40px;
-        }
-        .steps-container {
-          flex-direction: row;
-          gap: 20px;
-          align-items: stretch;
-        }
-        .step {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          padding: 28px;
-        }
-        .step-description {
-          flex-grow: 1;
-        }
-        .store-buttons {
-          flex-direction: column;
-          gap: 10px;
-        }
-        .qr-code {
-          width: 200px;
-          height: 200px;
-        }
+      .loading-state {
+        display: none;
+        padding: 20px;
+        text-align: center;
       }
-
-      /* Large desktop */
-      @media (min-width: 1024px) {
-        .wrapper {
-          max-width: 800px;
-        }
-        h1 {
-          font-size: 36px;
-        }
-        .steps-container {
-          gap: 28px;
-        }
-        .step {
-          padding: 32px;
-        }
+      .loading-state.active {
+        display: block;
       }
-
-      /* Dark mode */
-      @media (prefers-color-scheme: dark) {
-        body {
-          background: #0d0d0d;
-          color: #e0e0e0;
-        }
-        h1 {
-          color: #f5f5f5;
-        }
-        .subtitle {
-          color: #999;
-        }
-        .spinner {
-          border-color: #444;
-          border-top-color: #ccc;
-        }
-        .loading-text {
-          color: #aaa;
-        }
-        .step {
-          border-color: #333;
-          background: #1a1a1a;
-        }
-        .step-number {
-          border-color: #666;
-          color: #bbb;
-        }
-        .step-title {
-          color: #f0f0f0;
-        }
-        .step-description {
-          color: #888;
-        }
-        .store-button {
-          border-color: #444;
-          color: #e0e0e0;
-          background: #222;
-        }
-        .store-button:hover {
-          background: #2a2a2a;
-          border-color: #666;
-        }
-        .store-link {
-          color: #888;
-        }
-        .store-link:hover {
-          color: #ccc;
-        }
-        .qr-section {
-          background: #111;
-          border-color: #333;
-        }
-        .qr-section .step-number {
-          border-color: rgba(255, 255, 255, 0.4);
-        }
-        .qr-section .step-description {
-          color: rgba(255, 255, 255, 0.6);
-        }
-        .open-button {
-          background: #f0f0f0;
-          color: #111;
-        }
-        .open-button:hover {
-          background: #e0e0e0;
-        }
+      .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid var(--border);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin: 0 auto 12px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .footer {
+        padding: 32px 20px;
+        text-align: center;
+        border-top: 1px solid var(--border);
+        color: var(--text-secondary);
+        font-size: 13px;
+      }
+      .footer a {
+        color: var(--primary);
+        text-decoration: none;
+      }
+      @media (max-width: 600px) {
+        .hero h1 { font-size: 32px; }
+        .hero .tagline { font-size: 17px; }
+        .stats-row { gap: 20px; }
+        .stat-value { font-size: 24px; }
+        .feature-grid { grid-template-columns: 1fr; }
+        .store-links { flex-direction: column; align-items: center; }
       }
     </style>
   </head>
   <body>
-    <div class="wrapper">
-      <div class="loading" id="loading">
-        <div class="spinner"></div>
-        <div class="loading-text">Opening in Expo Go...</div>
-      </div>
-
-      <div class="content" id="content">
+    <section class="hero">
+      <div class="hero-content">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24"><path d="M13 0L0 14h9l-2 10L21 10h-9z"/></svg>
+        </div>
         <h1>APP_NAME_PLACEHOLDER</h1>
-        <p class="subtitle">Preview this app on your phone</p>
+        <p class="tagline">Master Every Exam</p>
+        <p class="tagline-bn">প্রতিটি পরীক্ষায় সফল হন</p>
+        <div class="stats-row">
+          <div class="stat-item">
+            <div class="stat-value">500+</div>
+            <div class="stat-label">Questions</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">9</div>
+            <div class="stat-label">Exam Types</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">2</div>
+            <div class="stat-label">Languages</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">AI</div>
+            <div class="stat-label">Powered</div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-        <div class="steps-container">
-          <div class="step">
-            <div class="step-header">
-              <div class="step-number">1</div>
-              <h2 class="step-title">Download Expo Go</h2>
-            </div>
-            <p class="step-description">
-              Expo Go is a free app to test mobile apps
-            </p>
-            <div class="store-buttons" id="store-buttons">
-              <a
-                id="app-store-btn"
-                href="https://apps.apple.com/app/id982107779"
-                class="store-button"
-                target="_blank"
-              >
-                <svg class="store-icon" viewBox="0 0 24 24" fill="currentColor">
-                  <path
-                    d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
-                  />
-                </svg>
+    <section class="features">
+      <h2>Everything You Need to Succeed</h2>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon" style="background: #E8F0FE;">&#x1F4DA;</div>
+          <h3>500+ Curated Questions</h3>
+          <p>Expert-crafted questions covering all subjects from Primary to BCS level in both English and Bangla.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background: #FEF7E0;">&#x26A1;</div>
+          <h3>Adaptive Learning</h3>
+          <p>AI adjusts difficulty in real-time based on your performance. Practice smarter, not harder.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background: #E6F4EA;">&#x1F916;</div>
+          <h3>AI Study Chatbot</h3>
+          <p>Ask questions, get explanations, and receive personalized study advice in English or Bangla.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background: #FCE8E6;">&#x1F4CA;</div>
+          <h3>Analytics Dashboard</h3>
+          <p>Track your accuracy, identify weak areas, monitor score trends, and get AI recommendations.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background: #FFF3E0;">&#x1F3AF;</div>
+          <h3>Multiple Practice Modes</h3>
+          <p>Relaxed, timed, speed round, and marathon modes. Choose the challenge that fits your preparation.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background: #F3E8FD;">&#x1F30D;</div>
+          <h3>Fully Bilingual</h3>
+          <p>Complete English and Bangla support across all features, questions, and AI interactions.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="exams-section">
+      <h2>All Major Exams Covered</h2>
+      <div class="exam-badges">
+        <span class="exam-badge"><span class="dot" style="background: #34A853;"></span> PSC</span>
+        <span class="exam-badge"><span class="dot" style="background: #34A853;"></span> JSC</span>
+        <span class="exam-badge"><span class="dot" style="background: #1A73E8;"></span> SSC</span>
+        <span class="exam-badge"><span class="dot" style="background: #1A73E8;"></span> HSC</span>
+        <span class="exam-badge"><span class="dot" style="background: #EA4335;"></span> Medical</span>
+        <span class="exam-badge"><span class="dot" style="background: #EA4335;"></span> Engineering</span>
+        <span class="exam-badge"><span class="dot" style="background: #FBBC04;"></span> University</span>
+        <span class="exam-badge"><span class="dot" style="background: #FF6D00;"></span> BCS</span>
+        <span class="exam-badge"><span class="dot" style="background: #9C27B0;"></span> Madrasah</span>
+      </div>
+    </section>
+
+    <section class="qr-section">
+      <h2>Try It Now</h2>
+      <p class="subtitle">Scan the QR code with your phone to open in Expo Go</p>
+
+      <div class="qr-steps">
+        <div class="qr-step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h3>Download Expo Go</h3>
+            <p>Get the free Expo Go app on your phone</p>
+            <div class="store-links">
+              <a href="https://apps.apple.com/app/expo-go/id982107779" target="_blank" class="store-link">
+                <svg viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
                 App Store
               </a>
-              <a
-                id="play-store-btn"
-                href="https://play.google.com/store/apps/details?id=host.exp.exponent"
-                class="store-button"
-                target="_blank"
-              >
-                <svg class="store-icon" viewBox="0 0 24 24" fill="currentColor">
-                  <path
-                    d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.6 3,21.09 3,20.5M16.81,15.12L6.05,21.34L14.54,12.85L16.81,15.12M20.16,10.81C20.5,11.08 20.75,11.5 20.75,12C20.75,12.5 20.53,12.9 20.18,13.18L17.89,14.5L15.39,12L17.89,9.5L20.16,10.81M6.05,2.66L16.81,8.88L14.54,11.15L6.05,2.66Z"
-                  />
-                </svg>
+              <a href="https://play.google.com/store/apps/details?id=host.exp.exponent" target="_blank" class="store-link">
+                <svg viewBox="0 0 24 24"><path d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.61 3,21.09 3,20.5M16.81,15.12L6.05,21.34L14.54,12.85L16.81,15.12M20.16,10.81C20.5,11.08 20.75,11.5 20.75,12C20.75,12.5 20.5,12.92 20.16,13.19L17.89,14.5L15.39,12L17.89,9.5L20.16,10.81M6.05,2.66L16.81,8.88L14.54,11.15L6.05,2.66Z"/></svg>
                 Google Play
               </a>
             </div>
           </div>
-
-          <div class="step qr-section">
-            <div class="step-header">
-              <div class="step-number">2</div>
-              <h2 class="step-title">Scan QR Code</h2>
-            </div>
-            <p class="step-description">Use your phone's camera or Expo Go</p>
-            <div class="qr-code" id="qr-code"></div>
-            <a href="exps://EXPS_URL_PLACEHOLDER" class="open-button"
-              >Open in Expo Go</a
-            >
+        </div>
+        <div class="qr-step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h3>Scan QR Code</h3>
+            <p>Point your camera at the code below to open APP_NAME_PLACEHOLDER</p>
           </div>
         </div>
       </div>
-    </div>
 
-    <script src="https://unpkg.com/qr-code-styling@1.6.0/lib/qr-code-styling.js"></script>
+      <div id="qr-code"></div>
+
+      <div id="loading-state" class="loading-state">
+        <div class="spinner"></div>
+        <p style="color: var(--text-secondary); font-size: 14px;">Opening in Expo Go...</p>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>APP_NAME_PLACEHOLDER &mdash; AI-Powered Exam Preparation for Bangladesh</p>
+      <p style="margin-top: 8px;">500+ Questions &bull; 9 Exam Types &bull; English & Bangla &bull; Adaptive Learning</p>
+    </footer>
+
+    <script src="https://unpkg.com/qr-code-styling@1.6.0-rc.1/lib/qr-code-styling.js"></script>
     <script>
-      (function () {
-        const ua = navigator.userAgent;
-        const loadingEl = document.getElementById("loading");
-        const contentEl = document.getElementById("content");
+      const expsUrl = "exps://EXPS_URL_PLACEHOLDER";
 
-        const isAndroid = /Android/i.test(ua);
-        const isIOS =
-          /iPhone|iPad|iPod/i.test(ua) ||
-          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      const qrCode = new QRCodeStyling({
+        width: 220,
+        height: 220,
+        data: expsUrl,
+        margin: 12,
+        dotsOptions: {
+          color: getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || "#202124",
+          type: "rounded",
+        },
+        backgroundOptions: {
+          color: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || "#FFFFFF",
+        },
+        cornersSquareOptions: {
+          type: "extra-rounded",
+          color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || "#1A73E8",
+        },
+        cornersDotOptions: {
+          color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || "#1A73E8",
+        },
+      });
 
-        const deepLink = "exps://EXPS_URL_PLACEHOLDER";
+      qrCode.append(document.getElementById("qr-code"));
 
-        // Adjust store buttons based on platform
-        const appStoreBtn = document.getElementById("app-store-btn");
-        const playStoreBtn = document.getElementById("play-store-btn");
-        const storeButtonsContainer = document.getElementById("store-buttons");
+      function isMobileDevice() {
+        return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      }
 
-        if (isIOS) {
-          playStoreBtn.className = "store-link";
-          storeButtonsContainer.appendChild(playStoreBtn);
-        } else if (isAndroid) {
-          appStoreBtn.className = "store-link";
-          storeButtonsContainer.insertBefore(playStoreBtn, appStoreBtn);
-        }
-
-        const qrCode = new QRCodeStyling({
-          width: 400,
-          height: 400,
-          data: deepLink,
-          dotsOptions: {
-            color: "#333333",
-            type: "rounded",
-          },
-          backgroundOptions: {
-            color: "#ffffff",
-          },
-          cornersSquareOptions: {
-            type: "extra-rounded",
-          },
-          cornersDotOptions: {
-            type: "dot",
-          },
-          qrOptions: {
-            errorCorrectionLevel: "H",
-          },
-        });
-
-        qrCode.append(document.getElementById("qr-code"));
-
-        if (isAndroid || isIOS) {
-          loadingEl.style.display = "block";
-          contentEl.style.display = "none";
-          window.location.href = deepLink;
-          setTimeout(function () {
-            loadingEl.style.display = "none";
-            contentEl.style.display = "block";
-          }, 500);
-        }
-      })();
+      if (isMobileDevice()) {
+        document.getElementById("loading-state").classList.add("active");
+        setTimeout(() => {
+          window.location.href = expsUrl;
+        }, 1500);
+        setTimeout(() => {
+          document.getElementById("loading-state").classList.remove("active");
+        }, 6000);
+      }
     </script>
   </body>
 </html>
