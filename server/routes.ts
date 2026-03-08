@@ -5,10 +5,15 @@ import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { registerSchema, loginSchema } from "@shared/schema";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+function getOpenAIClient(): OpenAI {
+  if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
+    throw new Error("AI features are not configured. Please set up the OpenAI integration.");
+  }
+  return new OpenAI({
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  });
+}
 
 const questionCache: Map<string, { questions: any[]; timestamp: number }> = new Map();
 const CACHE_TTL = 1000 * 60 * 60;
@@ -316,7 +321,7 @@ Guidelines:
         { role: "user", content: message },
       ];
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAIClient().chat.completions.create({
         model: "gpt-5.2",
         messages,
         max_completion_tokens: 4096,
@@ -372,7 +377,7 @@ Return ONLY a valid JSON array with this exact format, no other text:
   "explanation": "Detailed explanation here."
 }]`;
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAIClient().chat.completions.create({
         model: "gpt-5.2",
         messages: [
           {
@@ -455,7 +460,7 @@ Return ONLY a valid JSON array with this exact format, no other text:
   "explanation": "Detailed explanation here."
 }]`;
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAIClient().chat.completions.create({
         model: "gpt-5.2",
         messages: [
           {

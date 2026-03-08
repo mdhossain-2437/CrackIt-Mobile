@@ -1,8 +1,8 @@
 entrypoint = "README.md"
-modules = ["nodejs-22"]
+modules = ["nodejs-20", "web"]
 
 [nix]
-channel = "stable-24_05"
+channel = "stable-25_05"
 
 [deployment]
 deploymentTarget = "cloudrun"
@@ -11,10 +11,6 @@ run = ["npm", "run", "server:prod"]
 
 [[ports]]
 localPort = 5000
-externalPort = 5000
-
-[[ports]]
-localPort = 8081
 externalPort = 80
 
 [env]
@@ -23,6 +19,7 @@ PORT = "5000"
 [agent]
 stack = "EXPO"
 integrations = ["javascript_openai_ai_integrations:2.0.0"]
+expertMode = true
 
 [workflows]
 runButton = "Project"
@@ -35,6 +32,10 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Start App"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start Backend"
 
 [[workflows.workflow]]
 name = "Start App"
@@ -58,6 +59,9 @@ mode = "sequential"
 task = "shell.exec"
 args = "npm run server:dev"
 waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [[workflows.workflow]]
 name = "Start Frontend"
